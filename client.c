@@ -49,7 +49,7 @@ void connect_to_server(const char* mq_name, const char* cs_pipe_name, const char
 
     char connection_request[BUFFER_SIZE + 5 + 1000];
     int connection_info_len = strlen(connection_info) + 1;
-    sprintf(connection_request, "%4d%1d%3s%s", connection_info_len, CONNECTION_REQUEST, "", connection_info);
+    sprintf(connection_request, "%d %d %s %s", connection_info_len, CONNECTION_REQUEST, "", connection_info);
 
     if (mq_send(mqd, connection_request, connection_info_len + 5, 0) == -1) {
         perror("Error sending connection request to server");
