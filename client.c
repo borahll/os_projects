@@ -20,11 +20,19 @@
 #define QUIT_REPLY 6
 #define QUIT_ALL_REQUEST 7
 
-// Function to create named pipes
-void create_named_pipes(const char* cs_pipe_name, const char* sc_pipe_name) {
-    mkfifo(cs_pipe_name, 0666);
-    mkfifo(sc_pipe_name, 0666);
 
+void create_named_pipes(char* cs_pipe_name, char* sc_pipe_name, pid_t pid) {
+    sprintf(cs_pipe_name, "cs_pipe_%d", pid);
+    sprintf(sc_pipe_name, "sc_pipe_%d", pid);
+
+    if (mkfifo(cs_pipe_name, 0666) == -1 || mkfifo(sc_pipe_name, 0666) == -1) {
+        perror("Error creating named pipes");
+        exit(EXIT_FAILURE);
+    }
+
+    // Print the names of the named pipes
+    printf("Client - cs_pipe: %s\n", cs_pipe_name);
+    printf("Client - sc_pipe: %s\n", sc_pipe_name);
 }
 
 // Function to connect to the server
@@ -39,9 +47,8 @@ void connect_to_server(const char* mq_name, const char* cs_pipe_name, const char
     char connection_info[BUFFER_SIZE];
     sprintf(connection_info, "%s %s %d", cs_pipe_name, sc_pipe_name, wsize);
 
-    // Increase buffer size to avoid overflow warning
-    char connection_request[BUFFER_SIZE + 5 + 1000]; // Length + Type + Padding + Extra space
-    int connection_info_len = strlen(connection_info) + 1; // Include the null terminator
+    char connection_request[BUFFER_SIZE + 5 + 1000];
+    int connection_info_len = strlen(connection_info) + 1;
     sprintf(connection_request, "%4d%1d%3s%s", connection_info_len, CONNECTION_REQUEST, "", connection_info);
 
     if (mq_send(mqd, connection_request, connection_info_len + 5, 0) == -1) {
@@ -50,7 +57,7 @@ void connect_to_server(const char* mq_name, const char* cs_pipe_name, const char
         exit(EXIT_FAILURE);
     }
 
-    //mq_close(mqd);
+    mq_close(mqd);
 }
 
 // Function to wait for connection confirmation from the server
@@ -72,7 +79,6 @@ void wait_for_connection_confirmation(const char* sc_pipe_name) {
 // Function to send a message to the server
 void send_message(const char* cs_pipe_name, int type, const char* data) {
     int cs_pipe = open(cs_pipe_name, O_WRONLY);
-
     // Calculate the length of the message
     int data_len = strlen(data) + 1; // Include the null terminator
     int message_len = 5 + data_len;   // Length + Type + Padding
@@ -83,7 +89,7 @@ void send_message(const char* cs_pipe_name, int type, const char* data) {
 
     write(cs_pipe, message, message_len);
 
-    //close(cs_pipe);
+    close(cs_pipe);
 }
 
 // Function to receive a message from the server
@@ -102,7 +108,7 @@ void receive_message(const char* sc_pipe_name, char* data) {
     sscanf(message, "%1d%*3s", &type);
     snprintf(data, message_len - 5, "%s", message + 5);
 
-    //close(sc_pipe);
+    close(sc_pipe);
 }
 
 // Function to send quit request to the server
@@ -126,9 +132,6 @@ int main(int argc, char *argv[]) {
         exit(EXIT_FAILURE);
     }
 
-    char cs_pipe_name[BUFFER_SIZE];
-    char sc_pipe_name[BUFFER_SIZE];
-
     // Default values
     char* mq_name = argv[1];
     char* comfile = NULL;
@@ -149,8 +152,15 @@ int main(int argc, char *argv[]) {
                 exit(EXIT_FAILURE);
         }
     }
+
+    char cs_pipe_name[BUFFER_SIZE];
+    char sc_pipe_name[BUFFER_SIZE];
     // Create named pipes
-    create_named_pipes(cs_pipe_name, sc_pipe_name);
+    create_named_pipes(cs_pipe_name, sc_pipe_name, getpid());
+    // Print paths in client code
+// Print the names of the named pipes
+    printf("Client - cs_pipe: %.*s\n", (int)sizeof(cs_pipe_name), cs_pipe_name);
+    printf("Client - sc_pipe: %.*s\n", (int)sizeof(sc_pipe_name), sc_pipe_name);
 
     // Connect to the server
     connect_to_server(mq_name, cs_pipe_name, sc_pipe_name, wsize);

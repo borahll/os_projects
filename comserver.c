@@ -90,10 +90,14 @@ int main(int argc, char *argv[]) {
 }
 
 void handle_client(char *csPipeName, char *scPipeName, int wSize) {
-
+    // Print paths in server code
+    printf("Server - cs_pipe: %s\n", csPipeName);
+    printf("Server - sc_pipe: %s\n", scPipeName);
     int csPipe = open(csPipeName, O_RDONLY);
 
-    //int scPipe = open(scPipeName, O_WRONLY);
+    int scPipe = open(scPipeName, O_WRONLY);
+
+
             printf("%d \n", *scPipeName);
     fflush(stdout);
     char cmdBuffer[MAX_MSG_SIZE];
@@ -102,7 +106,7 @@ void handle_client(char *csPipeName, char *scPipeName, int wSize) {
     FILE *fp;
     const char *tempFileName = "/tmp/comserver_temp";
 
-    if (csPipe == -1 /*|| scPipe == -1*/) {
+    if (csPipe == -1 || scPipe == -1) {
         perror("Opening pipes");
         return;
     }
@@ -111,7 +115,7 @@ void handle_client(char *csPipeName, char *scPipeName, int wSize) {
     strcpy(responseBuffer, "Connection established");
 
 
-    //write(scPipe, responseBuffer, strlen(responseBuffer) + 1);
+    write(scPipe, responseBuffer, strlen(responseBuffer) + 1);
 
     while (1) {
         printf("%s \n", "entered handle client");
@@ -124,7 +128,7 @@ void handle_client(char *csPipeName, char *scPipeName, int wSize) {
 
         if (strcmp(cmdBuffer, "quit") == 0) {
             strcpy(responseBuffer, "quit-ack");
-            //write(scPipe, responseBuffer, strlen(responseBuffer) + 1);
+            write(scPipe, responseBuffer, strlen(responseBuffer) + 1);
             break;
         }
 
@@ -145,12 +149,12 @@ void handle_client(char *csPipeName, char *scPipeName, int wSize) {
 
         // Read the command output from the file and send it to the client
         while ((bytesRead = fread(responseBuffer, 1, sizeof(responseBuffer), fp)) > 0) {
-            //write(scPipe, responseBuffer, bytesRead);
+            write(scPipe, responseBuffer, bytesRead);
         }
         fclose(fp);
     }
 
     close(csPipe);
-    //close(scPipe);
+    close(scPipe);
 }
 
