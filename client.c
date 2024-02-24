@@ -24,6 +24,7 @@
 void create_named_pipes(const char* cs_pipe_name, const char* sc_pipe_name) {
     mkfifo(cs_pipe_name, 0666);
     mkfifo(sc_pipe_name, 0666);
+
 }
 
 // Function to connect to the server
@@ -57,7 +58,7 @@ void wait_for_connection_confirmation(const char* sc_pipe_name) {
     int sc_pipe = open(sc_pipe_name, O_RDONLY);
     char confirmation[BUFFER_SIZE];
     read(sc_pipe, confirmation, BUFFER_SIZE);
-
+    printf("%s \n", confirmation);
     if (strcmp(confirmation, "Connection established") != 0) {
         fprintf(stderr, "Error: Connection not established by the server\n");
         close(sc_pipe);
@@ -148,7 +149,6 @@ int main(int argc, char *argv[]) {
                 exit(EXIT_FAILURE);
         }
     }
-
     // Create named pipes
     create_named_pipes(cs_pipe_name, sc_pipe_name);
 

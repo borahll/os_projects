@@ -15,6 +15,8 @@ void handle_client(char *csPipeName, char *scPipeName, int wSize);
 int main(int argc, char *argv[]) {
     if (argc != 2) {
         fprintf(stderr, "Usage: %s <MQNAME>\n", argv[0]);
+                fflush(stdout);
+
         exit(EXIT_FAILURE);
     }
 
@@ -31,14 +33,15 @@ int main(int argc, char *argv[]) {
     // Create or open the message queue using MQNAME
     mq = mq_open(mqName, O_RDONLY | O_CREAT, QUEUE_PERMISSIONS, &attr);
     if (mq == (mqd_t)-1) {
-            printf("%s", "done");
+            printf("%s \n", "done");
+        fflush(stdout);
 
         perror("mq_open");
         exit(EXIT_FAILURE);
     }
 
     printf("Server is running. Waiting for connections on message queue '%s'...\n", mqName);
-
+    fflush(stdout);
     while (1) {
         char buffer[MAX_MSG_SIZE];
         memset(buffer, 0, MAX_MSG_SIZE); // Clear the buffer
@@ -46,7 +49,9 @@ int main(int argc, char *argv[]) {
         // Wait to receive a connection request message
         if (mq_receive(mq, buffer, MAX_MSG_SIZE, NULL) == -1) {
             perror("mq_receive");
-                printf("%s", "entered mq recieve");
+                printf("%s \n", "entered mq recieve");
+                        fflush(stdout);
+
             continue; // Continue to next iteration if an error occurs
         }
 
@@ -58,19 +63,24 @@ int main(int argc, char *argv[]) {
         // Fork a new process to handle the client
         pid_t pid = fork();
         if (pid == 0) { // Child process
-            printf("%s", "main hande client");
+            printf("%s \n", "main hande client");
+                    fflush(stdout);
+
             handle_client(csPipeName, scPipeName, wSize);
             exit(EXIT_SUCCESS); // Ensure child process exits after handling
         }
         else if (pid < 0) {
             perror("fork");
-                printf("%s", "err");
+                printf("%s \n", "err");
+                        fflush(stdout);
+
             continue; // If fork fails, continue to next iteration to keep server running
         }
         // Parent process (server) does not wait for child processes to exit
         // wait(NULL); // Optionally wait for child processes if required
     }
-        printf("%s", "done");
+        printf("%s \n", "done");
+        fflush(stdout);
 
     // Cleanup before exiting
     mq_close(mq);
@@ -80,24 +90,32 @@ int main(int argc, char *argv[]) {
 }
 
 void handle_client(char *csPipeName, char *scPipeName, int wSize) {
+
     int csPipe = open(csPipeName, O_RDONLY);
-    int scPipe = open(scPipeName, O_WRONLY);
+
+    //int scPipe = open(scPipeName, O_WRONLY);
+            printf("%d \n", *scPipeName);
+    fflush(stdout);
     char cmdBuffer[MAX_MSG_SIZE];
     char responseBuffer[MAX_MSG_SIZE];
+
     FILE *fp;
     const char *tempFileName = "/tmp/comserver_temp";
 
-    if (csPipe == -1 || scPipe == -1) {
+    if (csPipe == -1 /*|| scPipe == -1*/) {
         perror("Opening pipes");
         return;
     }
 
     // Send connection established message
     strcpy(responseBuffer, "Connection established");
-    printf("%s", "entered handle client");
-    write(scPipe, responseBuffer, strlen(responseBuffer) + 1);
+
+
+    //write(scPipe, responseBuffer, strlen(responseBuffer) + 1);
 
     while (1) {
+        printf("%s \n", "entered handle client");
+        fflush(stdout);
         int bytesRead = read(csPipe, cmdBuffer, MAX_MSG_SIZE - 1);
         if (bytesRead <= 0) {
             break; // Break the loop if read fails or when "quit" command is received
@@ -106,7 +124,7 @@ void handle_client(char *csPipeName, char *scPipeName, int wSize) {
 
         if (strcmp(cmdBuffer, "quit") == 0) {
             strcpy(responseBuffer, "quit-ack");
-            write(scPipe, responseBuffer, strlen(responseBuffer) + 1);
+            //write(scPipe, responseBuffer, strlen(responseBuffer) + 1);
             break;
         }
 
@@ -127,12 +145,12 @@ void handle_client(char *csPipeName, char *scPipeName, int wSize) {
 
         // Read the command output from the file and send it to the client
         while ((bytesRead = fread(responseBuffer, 1, sizeof(responseBuffer), fp)) > 0) {
-            write(scPipe, responseBuffer, bytesRead);
+            //write(scPipe, responseBuffer, bytesRead);
         }
         fclose(fp);
     }
 
     close(csPipe);
-    close(scPipe);
+    //close(scPipe);
 }
 
