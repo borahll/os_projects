@@ -58,7 +58,7 @@ int main(int argc, char *argv[]) {
         // Parse the received message to obtain client's named pipe names and WSIZE
         char csPipeName[100], scPipeName[100];
         int wSize;
-        sscanf(buffer, "%s %s %d", csPipeName, scPipeName, &wSize);
+        sscanf(buffer, "%s %s %d", scPipeName, csPipeName, &wSize);
 
         // Fork a new process to handle the client
         pid_t pid = fork();
