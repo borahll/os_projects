@@ -27,7 +27,6 @@ void create_named_pipes(const char* cs_pipe_name, const char* sc_pipe_name) {
 }
 
 // Function to connect to the server
-// Function to connect to the server
 void connect_to_server(const char* mq_name, const char* cs_pipe_name, const char* sc_pipe_name, int wsize) {
     // Send connection request to the server
     mqd_t mqd = mq_open(mq_name, O_WRONLY);
@@ -50,9 +49,8 @@ void connect_to_server(const char* mq_name, const char* cs_pipe_name, const char
         exit(EXIT_FAILURE);
     }
 
-    //mq_close(mqd);
+    mq_close(mqd);
 }
-
 
 // Function to wait for connection confirmation from the server
 void wait_for_connection_confirmation(const char* sc_pipe_name) {
@@ -67,7 +65,7 @@ void wait_for_connection_confirmation(const char* sc_pipe_name) {
     }
 
     printf("Connection established with the server\n");
-    //close(sc_pipe);
+    close(sc_pipe);
 }
 
 // Function to send a message to the server
@@ -84,7 +82,7 @@ void send_message(const char* cs_pipe_name, int type, const char* data) {
 
     write(cs_pipe, message, message_len);
 
-    //close(cs_pipe);
+    close(cs_pipe);
 }
 
 // Function to receive a message from the server
@@ -103,7 +101,7 @@ void receive_message(const char* sc_pipe_name, char* data) {
     sscanf(message, "%1d%*3s", &type);
     snprintf(data, message_len - 5, "%s", message + 5);
 
-    //close(sc_pipe);
+    close(sc_pipe);
 }
 
 // Function to send quit request to the server
@@ -122,7 +120,7 @@ int main(int argc, char *argv[]) {
     signal(SIGTERM, handle_termination);
     signal(SIGINT, handle_termination);
 
-    if (argc < 3) {
+    if (argc < 2) {
         fprintf(stderr, "Usage: %s MQNAME [-b COMFILE] [-s WSIZE]\n", argv[0]);
         exit(EXIT_FAILURE);
     }

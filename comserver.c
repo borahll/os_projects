@@ -31,6 +31,8 @@ int main(int argc, char *argv[]) {
     // Create or open the message queue using MQNAME
     mq = mq_open(mqName, O_RDONLY | O_CREAT, QUEUE_PERMISSIONS, &attr);
     if (mq == (mqd_t)-1) {
+            printf("%s", "done");
+
         perror("mq_open");
         exit(EXIT_FAILURE);
     }
@@ -44,6 +46,7 @@ int main(int argc, char *argv[]) {
         // Wait to receive a connection request message
         if (mq_receive(mq, buffer, MAX_MSG_SIZE, NULL) == -1) {
             perror("mq_receive");
+                printf("%s", "entered mq recieve");
             continue; // Continue to next iteration if an error occurs
         }
 
@@ -55,16 +58,19 @@ int main(int argc, char *argv[]) {
         // Fork a new process to handle the client
         pid_t pid = fork();
         if (pid == 0) { // Child process
+            printf("%s", "main hande client");
             handle_client(csPipeName, scPipeName, wSize);
             exit(EXIT_SUCCESS); // Ensure child process exits after handling
         }
         else if (pid < 0) {
             perror("fork");
+                printf("%s", "err");
             continue; // If fork fails, continue to next iteration to keep server running
         }
         // Parent process (server) does not wait for child processes to exit
         // wait(NULL); // Optionally wait for child processes if required
     }
+        printf("%s", "done");
 
     // Cleanup before exiting
     mq_close(mq);
@@ -88,6 +94,7 @@ void handle_client(char *csPipeName, char *scPipeName, int wSize) {
 
     // Send connection established message
     strcpy(responseBuffer, "Connection established");
+    printf("%s", "entered handle client");
     write(scPipe, responseBuffer, strlen(responseBuffer) + 1);
 
     while (1) {
