@@ -31,19 +31,19 @@ void create_named_pipes(char* cs_pipe_name, char* sc_pipe_name, pid_t pid) {
     }
 
     // Print the names of the named pipes
-    printf("Client - cs_pipe: %s\n", cs_pipe_name);
-    printf("Client - sc_pipe: %s\n", sc_pipe_name);
+    
 }
 
 // Function to connect to the server
 void connect_to_server(const char* mq_name, const char* cs_pipe_name, const char* sc_pipe_name, int wsize) {
+printf("%s\n", sc_pipe_name);
     // Send connection request to the server
     mqd_t mqd = mq_open(mq_name, O_WRONLY);
     if (mqd == -1) {
         perror("Error opening server message queue for connection request");
         exit(EXIT_FAILURE);
     }
-
+	
     char connection_info[BUFFER_SIZE];
     sprintf(connection_info, "%s %s %d", cs_pipe_name, sc_pipe_name, wsize);
 
@@ -56,13 +56,19 @@ void connect_to_server(const char* mq_name, const char* cs_pipe_name, const char
         mq_close(mqd);
         exit(EXIT_FAILURE);
     }
+	printf("%s\n", sc_pipe_name);
+        
 
     mq_close(mqd);
 }
 
 // Function to wait for connection confirmation from the server
 void wait_for_connection_confirmation(const char* sc_pipe_name) {
+  
     int sc_pipe = open(sc_pipe_name, O_RDONLY);
+    printf("%s\n", "checkkkk");
+    
+    
     char confirmation[BUFFER_SIZE];
     read(sc_pipe, confirmation, BUFFER_SIZE);
     printf("%s \n", confirmation);
@@ -73,7 +79,7 @@ void wait_for_connection_confirmation(const char* sc_pipe_name) {
     }
 
     printf("Connection established with the server\n");
-    //close(sc_pipe);
+    close(sc_pipe);
 }
 
 // Function to send a message to the server
@@ -159,8 +165,10 @@ int main(int argc, char *argv[]) {
     create_named_pipes(cs_pipe_name, sc_pipe_name, getpid());
     // Print paths in client code
 // Print the names of the named pipes
-    printf("Client - cs_pipe: %.*s\n", (int)sizeof(cs_pipe_name), cs_pipe_name);
-    printf("Client - sc_pipe: %.*s\n", (int)sizeof(sc_pipe_name), sc_pipe_name);
+printf("Client - sc_pipe: %.*s\n", (int)sizeof(sc_pipe_name), sc_pipe_name);
+        fflush(stdout);
+    //printf("Client - cs_pipe: %.*s\n", (int)sizeof(cs_pipe_name), cs_pipe_name);
+    //printf("Client - sc_pipe: %.*s\n", (int)sizeof(sc_pipe_name), sc_pipe_name);
 
     // Connect to the server
     connect_to_server(mq_name, cs_pipe_name, sc_pipe_name, wsize);

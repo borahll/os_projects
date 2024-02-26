@@ -98,20 +98,22 @@ void handle_client(char *csPipeName, char *scPipeName, int wSize) {
     // Print paths in server code
     printf("Server - cs_pipe: %s\n", csPipeName);
     printf("Server - sc_pipe: %s\n", scPipeName);
-    int csPipe = open(csPipeName, O_RDONLY);
+    //int csPipe = open(csPipeName, O_RDONLY);
 
     int scPipe = open(scPipeName, O_WRONLY);
+    
+    printf("Server - cs_pipe: %s\n", csPipeName);
+    printf("Server - sc_pipe: %s\n", scPipeName);
 
 
-            printf("%d \n", *scPipeName);
-    fflush(stdout);
+            
     char cmdBuffer[MAX_MSG_SIZE];
     char responseBuffer[MAX_MSG_SIZE];
 
     FILE *fp;
     const char *tempFileName = "/tmp/comserver_temp";
 
-    if (csPipe == -1 || scPipe == -1) {
+    if (/*csPipe == -1 ||*/ scPipe == -1) {
         perror("Opening pipes");
         return;
     }
@@ -119,13 +121,15 @@ void handle_client(char *csPipeName, char *scPipeName, int wSize) {
     // Send connection established message
     strcpy(responseBuffer, "Connection established");
 
-
+	
     write(scPipe, responseBuffer, strlen(responseBuffer) + 1);
+    printf("%d \n", *scPipeName);
+    fflush(stdout);
 
     while (1) {
         printf("%s \n", "entered handle client");
         fflush(stdout);
-        int bytesRead = read(csPipe, cmdBuffer, MAX_MSG_SIZE - 1);
+        /*int bytesRead = read(csPipe, cmdBuffer, MAX_MSG_SIZE - 1);
         if (bytesRead <= 0) {
             break; // Break the loop if read fails or when "quit" command is received
         }
@@ -133,7 +137,7 @@ void handle_client(char *csPipeName, char *scPipeName, int wSize) {
 
         if (strcmp(cmdBuffer, "quit") == 0) {
             strcpy(responseBuffer, "quit-ack");
-            write(scPipe, responseBuffer, strlen(responseBuffer) + 1);
+            //write(scPipe, responseBuffer, strlen(responseBuffer) + 1);
             break;
         }
 
@@ -154,12 +158,12 @@ void handle_client(char *csPipeName, char *scPipeName, int wSize) {
 
         // Read the command output from the file and send it to the client
         while ((bytesRead = fread(responseBuffer, 1, sizeof(responseBuffer), fp)) > 0) {
-            write(scPipe, responseBuffer, bytesRead);
+            //write(scPipe, responseBuffer, bytesRead);
         }
-        fclose(fp);
+        fclose(fp);*/
     }
 
-    close(csPipe);
-    close(scPipe);
+    //close(csPipe);
+    //close(scPipe);
 }
 
