@@ -10,7 +10,7 @@
 #define MAX_MSG_SIZE 256
 #define QUEUE_PERMISSIONS 0660
 
-void handle_client(char *csPipeName, char *scPipeName, int wSize);
+void handle_client(char *cssc_pipe_name/*, char *scPipeName*/, int wSize);
 
 int main(int argc, char *argv[]) {
     if (argc != 2) {
@@ -31,9 +31,13 @@ int main(int argc, char *argv[]) {
     };
 
     // Create or open the message queue using MQNAME
-    mq = mq_open(mqName, O_RDONLY | O_CREAT, QUEUE_PERMISSIONS, &attr);
+    printf(" %s\n", "bef mq_open");
+    fflush(stdout);
+    mq = mq_open(mqName, O_RDWR | O_CREAT, QUEUE_PERMISSIONS, &attr);
+    printf(" %s\n", "after mq_open");
+    fflush(stdout);
     if (mq == (mqd_t)-1) {
-            printf("%s \n", "done");
+        printf("%s \n", "done");
         fflush(stdout);
 
         perror("mq_open");
@@ -49,21 +53,21 @@ int main(int argc, char *argv[]) {
         // Wait to receive a connection request message
         if (mq_receive(mq, buffer, MAX_MSG_SIZE, NULL) == -1) {
             perror("mq_receive");
-                printf("%s \n", "entered mq recieve");
-                        fflush(stdout);
+            printf("%s \n", "entered mq recieve");
+            fflush(stdout);
 
             continue; // Continue to next iteration if an error occurs
         }
 
         // Parse the received message to obtain client's named pipe names and WSIZE
-        char csPipeName[100], scPipeName[100];
+        char cssc_pipe_name[100]/*, scPipeName[100]*/;
         int wSize;
         printf("%s\n", buffer);
         fflush(stdout);
         //connection_info_len, CONNECTION_REQUEST, "", connection_info
         int connection_info_len = 0;
         int connection_request = 0; //DELETE THIS. ONLY FOR DEVELOPMENT!!!!
-        sscanf(buffer, "%d %d %s %s %d", &connection_info_len, &connection_request, csPipeName ,scPipeName, &wSize);
+        sscanf(buffer, "%d %d %s %d", &connection_info_len, &connection_request, cssc_pipe_name/* ,scPipeName*/, &wSize);
 
         // Fork a new process to handle the client
         pid_t pid = fork();
@@ -71,7 +75,7 @@ int main(int argc, char *argv[]) {
             printf("%s \n", "main hande client");
                     fflush(stdout);
 
-            handle_client(csPipeName, scPipeName, wSize);
+            handle_client(cssc_pipe_name/*, scPipeName*/, wSize);
             exit(EXIT_SUCCESS); // Ensure child process exits after handling
         }
         else if (pid < 0) {
@@ -94,16 +98,23 @@ int main(int argc, char *argv[]) {
     return 0;
 }
 
-void handle_client(char *csPipeName, char *scPipeName, int wSize) {
+void handle_client(char *cssc_pipe_name/*, char *scPipeName*/, int wSize) {
     // Print paths in server code
-    printf("Server - cs_pipe: %s\n", csPipeName);
-    printf("Server - sc_pipe: %s\n", scPipeName);
-    //int csPipe = open(csPipeName, O_RDONLY);
+    printf("Server - cssc_pipe_name: %s\n", cssc_pipe_name);
+    fflush(stdout);
 
-    int scPipe = open(scPipeName, O_WRONLY);
-    
-    printf("Server - cs_pipe: %s\n", csPipeName);
-    printf("Server - sc_pipe: %s\n", scPipeName);
+    //printf("Server - sc_pipe: %s\n", scPipeName);
+    //int csPipe = open(csPipeName, O_RDONLY);
+    printf(" %s\n", "bef open");
+    fflush(stdout);
+
+    int cssc_pipe = open(cssc_pipe_name, O_RDWR);
+    printf("%s\n", "after open");
+    fflush(stdout);
+
+    printf("Server - cssc_pipe_name: %s\n", cssc_pipe_name);
+    //printf("Server - sc_pipe: %s\n", scPipeName);
+        fflush(stdout);
 
 
             
@@ -113,7 +124,7 @@ void handle_client(char *csPipeName, char *scPipeName, int wSize) {
     FILE *fp;
     const char *tempFileName = "/tmp/comserver_temp";
 
-    if (/*csPipe == -1 ||*/ scPipe == -1) {
+    if (/*csPipe == -1 ||*/ cssc_pipe == -1) {
         perror("Opening pipes");
         return;
     }
@@ -122,14 +133,14 @@ void handle_client(char *csPipeName, char *scPipeName, int wSize) {
     strcpy(responseBuffer, "Connection established");
 
 	
-    write(scPipe, responseBuffer, strlen(responseBuffer) + 1);
-    printf("%d \n", *scPipeName);
+    write(cssc_pipe, responseBuffer, strlen(responseBuffer) + 1);
+    printf("%d \n", *cssc_pipe_name);
     fflush(stdout);
 
     while (1) {
         printf("%s \n", "entered handle client");
         fflush(stdout);
-        /*int bytesRead = read(csPipe, cmdBuffer, MAX_MSG_SIZE - 1);
+        int bytesRead = read(cssc_pipe, cmdBuffer, MAX_MSG_SIZE - 1);
         if (bytesRead <= 0) {
             break; // Break the loop if read fails or when "quit" command is received
         }
@@ -160,7 +171,7 @@ void handle_client(char *csPipeName, char *scPipeName, int wSize) {
         while ((bytesRead = fread(responseBuffer, 1, sizeof(responseBuffer), fp)) > 0) {
             //write(scPipe, responseBuffer, bytesRead);
         }
-        fclose(fp);*/
+        fclose(fp);
     }
 
     //close(csPipe);
