@@ -273,6 +273,7 @@ printf("Client - cs_pipe_name: %s\n", cs_pipe_name);
                 }
 
                 // Wait for quit acknowledgment from the server
+                send_message(cs_pipe_name, QUIT_REQUEST, command);
                 char result[BUFFER_SIZE];
                 receive_message(sc_pipe_name, result);
                 printf("Result from server: %s\n", result);

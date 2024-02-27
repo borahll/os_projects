@@ -18,6 +18,8 @@
 #define QUIT_ALL_REQUEST 7
 #define BUFFER_SIZE 1024
 
+int hebele = 0;
+int* client_count = &hebele;
 
 void handle_client(char *csPipeName, char *scPipeName, int wSize);
 
@@ -158,9 +160,9 @@ void handle_client(char *csPipeName, char *scPipeName, int wSize) {
     int scPipe = open(scPipeName, O_RDWR);
     printf("%s\n", "after open");
     fflush(stdout);
-
     printf("Server - cssc_pipe_name: %s\n", csPipeName);
     printf("Server - sc_pipe: %s\n", scPipeName);
+    printf("Server - client count: %d\n", *client_count);
         fflush(stdout);
 
 
@@ -205,9 +207,11 @@ void handle_client(char *csPipeName, char *scPipeName, int wSize) {
         char* abc = getSubstringFromSecondSpace(cmdBufferFull);
         char* cmdBuffer = getSubstringFromSecondSpace(abc);
         if (strcmp(cmdBuffer, "quit") == 0) {
+            *client_count = *client_count - 1;
+            printf("Server - client count: %d\n", *client_count);
             strcpy(responseBuffer, "quit-ack");
             write(scPipe, responseBuffer, strlen(responseBuffer) + 1);
-            break;
+            //break;
         }
 
         // Execute command and write output to a temporary file
@@ -218,9 +222,13 @@ void handle_client(char *csPipeName, char *scPipeName, int wSize) {
         }
         pid_t pid = fork();
         if (pid == 0) { // Child process executes the command
+            *client_count = *client_count + 1;
             dup2(fileno(fp), STDOUT_FILENO); // Redirect stdout to temporary file
             execlp("sh", "sh", "-c", cmdBuffer, (char *)NULL);
             exit(EXIT_FAILURE); // Exec should not return, exit if it does
+        }
+        else if(pid > 0){
+            *client_count = *client_count - 1;
         }
         wait(NULL); // Wait for the command execution to finish
         fseek(fp, 0, SEEK_SET); // Go to the beginning of the file
