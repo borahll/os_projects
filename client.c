@@ -96,7 +96,7 @@ void send_message(const char* cs_pipe_name, int type, const char* data) {
     int cs_pipe = open(cs_pipe_name, O_RDWR);
     // Calculate the length of the message
     int data_len = strlen(data) + 1; // Include the null terminator
-    int message_len = 5 + data_len;   // Length + Type + Padding
+    int message_len = 7 + data_len;   // Length + Type + Padding
 
     // Prepare the message
     char message[BUFFER_SIZE];

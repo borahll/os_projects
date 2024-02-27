@@ -12,6 +12,44 @@
 
 void handle_client(char *csPipeName, char *scPipeName, int wSize);
 
+char* getSubstringFromSecondSpace(char* input) {
+    int spaceCount = 0;
+    const char* current = input;
+
+    // Find the position of the 2nd space
+    while (*current != '\0') {
+        if (*current == ' ') {
+            spaceCount++;
+            if (spaceCount == 2) {
+                break;
+            }
+        }
+        current++;
+    }
+
+    // Calculate the length of the substring
+    size_t substringLength = 0;
+    const char* substringStart = current + 1; // Start from the character after the 2nd space
+
+    while (*current != '\0') {
+        substringLength++;
+        current++;
+    }
+
+    // Allocate memory for the substring
+    char* substring = (char*)malloc(substringLength + 1);
+
+    // Copy the substring into the allocated memory
+    strncpy(substring, substringStart, substringLength);
+    substring[substringLength] = '\0'; // Null-terminate the substring
+
+    // Remove leading spaces in the substring
+    size_t leadingSpaces = strspn(substring, " ");
+    memmove(substring, substring + leadingSpaces, substringLength - leadingSpaces + 1);
+
+    return substring;
+}
+
 int main(int argc, char *argv[]) {
     if (argc != 2) {
         fprintf(stderr, "Usage: %s <MQNAME>\n", argv[0]);
@@ -118,7 +156,7 @@ void handle_client(char *csPipeName, char *scPipeName, int wSize) {
 
 
             
-    char cmdBuffer[MAX_MSG_SIZE];
+    char *cmdBufferFull = (char *)malloc(MAX_MSG_SIZE * sizeof(char));
     char responseBuffer[MAX_MSG_SIZE];
 
     FILE *fp;
@@ -140,15 +178,23 @@ void handle_client(char *csPipeName, char *scPipeName, int wSize) {
     while (1) {
         printf("%s \n", "entered handle client");
         fflush(stdout);
-        printf("%s\n", cmdBuffer);
-        fflush(stdout);
-        int bytesRead = read(csPipe, cmdBuffer, MAX_MSG_SIZE - 1);
+        int bytesRead = read(csPipe, cmdBufferFull, MAX_MSG_SIZE - 1);
         if (bytesRead <= 0) {
             break; // Break the loop if read fails or when "quit" command is received
         }
         
-        cmdBuffer[bytesRead] = '\0';
-        printf("%s\n", cmdBuffer);
+        if (bytesRead < MAX_MSG_SIZE - 1) {
+            cmdBufferFull[bytesRead] = '\0';
+        } else {
+            // Handle the case where the buffer is full
+            cmdBufferFull[MAX_MSG_SIZE - 1] = '\0';
+        }
+        printf("%s\n", cmdBufferFull);
+        fflush(stdout);
+        //cmdBuffer = getSubstringFromSecondSpace(cmdBuffer);
+        char* abc = getSubstringFromSecondSpace(cmdBufferFull);
+        char* cmdBuffer = getSubstringFromSecondSpace(abc);
+        printf("cmd buffer after str concat : %s \n", cmdBuffer);
         fflush(stdout);
         if (strcmp(cmdBuffer, "quit") == 0) {
             strcpy(responseBuffer, "quit-ack");
