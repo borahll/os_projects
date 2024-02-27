@@ -18,11 +18,33 @@
 #define QUIT_ALL_REQUEST 7
 #define BUFFER_SIZE 1024
 
-int hebele = 0;
-int* client_count = &hebele;
+
 
 void handle_client(char *csPipeName, char *scPipeName, int wSize);
 
+// Function to save the value to a file
+void save_value(int value) {
+    FILE *file = fopen("storage.txt", "w");
+    if (file != NULL) {
+        fprintf(file, "%d", value);
+        fclose(file);
+    } else {
+        perror("Error opening file for writing");
+    }
+}
+
+// Function to read the value from a file
+int read_value() {
+    int value = 0;
+    FILE *file = fopen("storage.txt", "r");
+    if (file != NULL) {
+        fscanf(file, "%d", &value);
+        fclose(file);
+    } else {
+        perror("Error opening file for reading");
+    }
+    return value;
+}
 char* getSubstringFromSecondSpace(char* input) {
     int spaceCount = 0;
     const char* current = input;
@@ -149,6 +171,7 @@ int main(int argc, char *argv[]) {
 
 void handle_client(char *csPipeName, char *scPipeName, int wSize) {
     // Print paths in server code
+    int client_count = read_value();
     printf("Server - cssc_pipe_name: %s\n", csPipeName);
     fflush(stdout);
 
@@ -156,13 +179,15 @@ void handle_client(char *csPipeName, char *scPipeName, int wSize) {
     int csPipe = open(csPipeName, O_RDWR);
     printf(" %s\n", "bef open");
     fflush(stdout);
-
+    client_count = read_value();
+    client_count = client_count + 1;
+    save_value(client_count);
     int scPipe = open(scPipeName, O_RDWR);
     printf("%s\n", "after open");
     fflush(stdout);
     printf("Server - cssc_pipe_name: %s\n", csPipeName);
     printf("Server - sc_pipe: %s\n", scPipeName);
-    printf("Server - client count: %d\n", *client_count);
+    printf("Server - client count: %d\n", client_count);
         fflush(stdout);
 
 
@@ -180,6 +205,7 @@ void handle_client(char *csPipeName, char *scPipeName, int wSize) {
 
     // Send connection established message
     strcpy(responseBuffer, "Connection established");
+
     int data_len = strlen(responseBuffer) + 1; // Include the null terminator
     int message_len = 7 + data_len;   // Length + Type + Padding
 
@@ -207,13 +233,14 @@ void handle_client(char *csPipeName, char *scPipeName, int wSize) {
         char* abc = getSubstringFromSecondSpace(cmdBufferFull);
         char* cmdBuffer = getSubstringFromSecondSpace(abc);
         if (strcmp(cmdBuffer, "quit") == 0) {
-            *client_count = *client_count - 1;
-            printf("Server - client count: %d\n", *client_count);
+            client_count = read_value();
+            client_count = client_count - 1;
+            save_value(client_count);
             strcpy(responseBuffer, "quit-ack");
+            printf("Server - client count: %d\n", client_count);
             write(scPipe, responseBuffer, strlen(responseBuffer) + 1);
             //break;
         }
-
         // Execute command and write output to a temporary file
         fp = fopen("comserver_temp", "w+");
         if (fp == NULL) {
@@ -222,13 +249,12 @@ void handle_client(char *csPipeName, char *scPipeName, int wSize) {
         }
         pid_t pid = fork();
         if (pid == 0) { // Child process executes the command
-            *client_count = *client_count + 1;
             dup2(fileno(fp), STDOUT_FILENO); // Redirect stdout to temporary file
             execlp("sh", "sh", "-c", cmdBuffer, (char *)NULL);
             exit(EXIT_FAILURE); // Exec should not return, exit if it does
         }
         else if(pid > 0){
-            *client_count = *client_count - 1;
+
         }
         wait(NULL); // Wait for the command execution to finish
         fseek(fp, 0, SEEK_SET); // Go to the beginning of the file
