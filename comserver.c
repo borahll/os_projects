@@ -9,6 +9,15 @@
 
 #define MAX_MSG_SIZE 256
 #define QUEUE_PERMISSIONS 0660
+#define CONNECTION_REQUEST 1
+#define CONNECTION_REPLY 2 //
+#define COMMAND_LINE 3
+#define COMMAND_RESULT 4 //
+#define QUIT_REQUEST 5
+#define QUIT_REPLY 6 //
+#define QUIT_ALL_REQUEST 7
+#define BUFFER_SIZE 1024
+
 
 void handle_client(char *csPipeName, char *scPipeName, int wSize);
 
@@ -169,11 +178,14 @@ void handle_client(char *csPipeName, char *scPipeName, int wSize) {
 
     // Send connection established message
     strcpy(responseBuffer, "Connection established");
+    int data_len = strlen(responseBuffer) + 1; // Include the null terminator
+    int message_len = 7 + data_len;   // Length + Type + Padding
 
+    // Prepare the message
+    char message[BUFFER_SIZE];
+    sprintf(message, "%4d%1d%3s%s", message_len, CONNECTION_REPLY, "", responseBuffer);
 	
-    write(scPipe, responseBuffer, strlen(responseBuffer) + 1);
-    printf("%d \n", *scPipeName);
-    fflush(stdout);
+    write(scPipe, message, message_len);
 
     while (1) {
         printf("%s \n", "entered handle client");
@@ -189,13 +201,9 @@ void handle_client(char *csPipeName, char *scPipeName, int wSize) {
             // Handle the case where the buffer is full
             cmdBufferFull[MAX_MSG_SIZE - 1] = '\0';
         }
-        printf("%s\n", cmdBufferFull);
-        fflush(stdout);
         //cmdBuffer = getSubstringFromSecondSpace(cmdBuffer);
         char* abc = getSubstringFromSecondSpace(cmdBufferFull);
         char* cmdBuffer = getSubstringFromSecondSpace(abc);
-        printf("cmd buffer after str concat : %s \n", cmdBuffer);
-        fflush(stdout);
         if (strcmp(cmdBuffer, "quit") == 0) {
             strcpy(responseBuffer, "quit-ack");
             write(scPipe, responseBuffer, strlen(responseBuffer) + 1);
@@ -219,7 +227,15 @@ void handle_client(char *csPipeName, char *scPipeName, int wSize) {
 
         // Read the command output from the file and send it to the client
         while ((bytesRead = fread(responseBuffer, 1, sizeof(responseBuffer), fp)) > 0) {
-            write(scPipe, responseBuffer, bytesRead);
+            int data_len = strlen(responseBuffer) + 1; // Include the null terminator
+            int message_len = 7 + data_len;   // Length + Type + Padding
+
+            // Prepare the message
+            char message[BUFFER_SIZE];
+            sprintf(message, "%4d%1d%3s%s", message_len, COMMAND_RESULT, "", responseBuffer);
+            printf("The message from the server: %s \n ", message);
+            fflush(stdout);
+            write(scPipe, message, bytesRead + 6 + 1);
         }
         fclose(fp);
     }

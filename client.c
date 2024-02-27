@@ -20,6 +20,46 @@
 #define QUIT_REPLY 6
 #define QUIT_ALL_REQUEST 7
 
+
+
+
+char* getSubstringFromSecondSpace(char* input) {
+    int spaceCount = 0;
+    const char* current = input;
+
+    // Find the position of the 2nd space
+    while (*current != '\0') {
+        if (*current == ' ') {
+            spaceCount++;
+            if (spaceCount == 2) {
+                break;
+            }
+        }
+        current++;
+    }
+
+    // Calculate the length of the substring
+    size_t substringLength = 0;
+    const char* substringStart = current + 1; // Start from the character after the 2nd space
+
+    while (*current != '\0') {
+        substringLength++;
+        current++;
+    }
+
+    // Allocate memory for the substring
+    char* substring = (char*)malloc(substringLength + 1);
+
+    // Copy the substring into the allocated memory
+    strncpy(substring, substringStart, substringLength);
+    substring[substringLength] = '\0'; // Null-terminate the substring
+
+    // Remove leading spaces in the substring
+    size_t leadingSpaces = strspn(substring, " ");
+    memmove(substring, substring + leadingSpaces, substringLength - leadingSpaces + 1);
+
+    return substring;
+}
 /**
  * @brief Create a named pipes object
  * 
@@ -81,7 +121,9 @@ void wait_for_connection_confirmation(const char* sc_pipe_name) {
     char confirmation[BUFFER_SIZE];
     read(sc_pipe, confirmation, BUFFER_SIZE);
     printf("%s \n", confirmation);
-    if (strcmp(confirmation, "Connection established") != 0) {
+    char* abc = getSubstringFromSecondSpace(confirmation);
+    char* confirmation_done = getSubstringFromSecondSpace(abc);
+    if (strcmp(confirmation_done, "Connection established") != 0) {
         fprintf(stderr, "Error: Connection not established by the server\n");
         close(sc_pipe);
         exit(EXIT_FAILURE);
@@ -109,20 +151,22 @@ void send_message(const char* cs_pipe_name, int type, const char* data) {
 
 // Function to receive a message from the server
 void receive_message(const char* sc_pipe_name, char* data) {
+    char *cmdBufferFull = (char *)malloc(256 * sizeof(char));
     int sc_pipe = open(sc_pipe_name, O_RDWR);
-    char length_buffer[4];
-    read(sc_pipe, length_buffer, 4);
-    int message_len = *(int *)length_buffer;
+    int bytesRead = read(sc_pipe, cmdBufferFull, 256 - 1);
+    if (bytesRead < 256 - 1) {
+        cmdBufferFull[bytesRead] = '\0';
+    } else {
+        // Handle the case where the buffer is full
+        cmdBufferFull[256 - 1] = '\0';
+    }
+    //cmdBuffer = getSubstringFromSecondSpace(cmdBuffer);
+    char* cmdBuffer = getSubstringFromSecondSpace(cmdBufferFull);
+    //char* cmdBuffer = getSubstringFromSecondSpace(abc);
 
-    // Extract data from the message
-    char message[BUFFER_SIZE];
-    read(sc_pipe, message, message_len - 4);
-
-    // Extract type and data from the message
-    int type;
-    sscanf(message, "%1d%*3s", &type);
-    snprintf(data, message_len - 5, "%s", message + 5);
-
+    snprintf(data, 255, "%s", cmdBuffer);
+    printf(" The full buffer %s\n", data);
+    fflush(stdout);
     close(sc_pipe);
 }
 
