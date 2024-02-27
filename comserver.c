@@ -139,7 +139,7 @@ int main(int argc, char *argv[]) {
         int connection_info_len = 0;
         int connection_request = 0; //DELETE THIS. ONLY FOR DEVELOPMENT!!!!
         sscanf(buffer, "%d %d %s %s %d", &connection_info_len, &connection_request, csPipeName ,scPipeName, &wSize);
-
+        printf("The wsize : %d \n", wSize);
         // Fork a new process to handle the client
         pid_t pid = fork();
         if (pid == 0) { // Child process
@@ -213,7 +213,7 @@ void handle_client(char *csPipeName, char *scPipeName, int wSize) {
     char message[BUFFER_SIZE];
     sprintf(message, "%4d%1d%3s%s", message_len, CONNECTION_REPLY, "", responseBuffer);
 	
-    write(scPipe, message, message_len);
+    write(scPipe, message, wSize);
 
     while (1) {
         printf("%s \n", "entered handle client");
