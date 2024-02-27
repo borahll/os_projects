@@ -8,4 +8,5 @@ comserver: comserver.c
 
 clean:
 	rm -fr client server
+	rm -fr comserver_temp
 	rm -f cs_pipe_* sc_pipe_*
