@@ -7,11 +7,8 @@
 #include <string.h>
 #include <mqueue.h>
 #include <signal.h>
-
 #define BUFFER_SIZE 1024
 #define MAXARGS 10
-
-// Message types
 #define CONNECTION_REQUEST 1
 #define CONNECTION_REPLY 2
 #define COMMAND_LINE 3
@@ -19,15 +16,9 @@
 #define QUIT_REQUEST 5
 #define QUIT_REPLY 6
 #define QUIT_ALL_REQUEST 7
-
-
-
-
 char* getSubstringFromSecondSpace(char* input) {
     int spaceCount = 0;
     const char* current = input;
-
-    // Find the position of the 2nd space
     while (*current != '\0') {
         if (*current == ' ') {
             spaceCount++;
@@ -37,27 +28,17 @@ char* getSubstringFromSecondSpace(char* input) {
         }
         current++;
     }
-
-    // Calculate the length of the substring
     size_t substringLength = 0;
-    const char* substringStart = current + 1; // Start from the character after the 2nd space
-
+    const char* substringStart = current + 1;
     while (*current != '\0') {
         substringLength++;
         current++;
     }
-
-    // Allocate memory for the substring
     char* substring = (char*)malloc(substringLength + 1);
-
-    // Copy the substring into the allocated memory
     strncpy(substring, substringStart, substringLength);
-    substring[substringLength] = '\0'; // Null-terminate the substring
-
-    // Remove leading spaces in the substring
+    substring[substringLength] = '\0';
     size_t leadingSpaces = strspn(substring, " ");
     memmove(substring, substring + leadingSpaces, substringLength - leadingSpaces + 1);
-
     return substring;
 }
 /**
@@ -78,46 +59,30 @@ void create_named_pipes(char* cs_pipe_name, char* sc_pipe_name, pid_t pid) {
         perror("Error creating named pipes");
         exit(EXIT_FAILURE);
     }
-
-    // Print the names of the named pipes
-    
 }
-
-// Function to connect to the server
 void connect_to_server(const char* mq_name, const char* cs_pipe_name, const char* sc_pipe_name, int wsize) {
 printf("%s\n", cs_pipe_name);
-    // Send connection request to the server
     mqd_t mqd = mq_open(mq_name, O_RDWR);
     if (mqd == -1) {
         perror("Error opening server message queue for connection request");
         exit(EXIT_FAILURE);
     }
-	
     char connection_info[BUFFER_SIZE];
     sprintf(connection_info, "%s %s %d", cs_pipe_name, sc_pipe_name, wsize);
-
     char connection_request[BUFFER_SIZE + 5 + 1000];
     int connection_info_len = strlen(connection_info) + 1;
     sprintf(connection_request, "%d %d %s %s", connection_info_len, CONNECTION_REQUEST, "", connection_info);
-
     if (mq_send(mqd, connection_request, connection_info_len + 5, 0) == -1) {
         perror("Error sending connection request to server");
         mq_close(mqd);
         exit(EXIT_FAILURE);
     }
 	printf("%s\n", cs_pipe_name);
-        
-
     mq_close(mqd);
 }
-
-// Function to wait for connection confirmation from the server
 void wait_for_connection_confirmation(const char* sc_pipe_name) {
-  
     int sc_pipe = open(sc_pipe_name, O_RDWR);
     printf("%s\n", "checkkkk");
-    
-    
     char confirmation[BUFFER_SIZE];
     read(sc_pipe, confirmation, BUFFER_SIZE);
     printf("%s \n", confirmation);
@@ -128,28 +93,18 @@ void wait_for_connection_confirmation(const char* sc_pipe_name) {
         close(sc_pipe);
         exit(EXIT_FAILURE);
     }
-
     printf("Connection established with the server\n");
     close(sc_pipe);
 }
-
-// Function to send a message to the server
 void send_message(const char* cs_pipe_name, int type, const char* data) {
     int cs_pipe = open(cs_pipe_name, O_RDWR);
-    // Calculate the length of the message
-    int data_len = strlen(data) + 1; // Include the null terminator
-    int message_len = 7 + data_len;   // Length + Type + Padding
-
-    // Prepare the message
+    int data_len = strlen(data) + 1;
+    int message_len = 7 + data_len;
     char message[BUFFER_SIZE];
     sprintf(message, "%4d%1d%3s%s", message_len, type, "", data);
-
     write(cs_pipe, message, message_len);
-
     close(cs_pipe);
 }
-
-// Function to receive a message from the server
 void receive_message(const char* sc_pipe_name, char* data) {
     char *cmdBufferFull = (char *)malloc(256 * sizeof(char));
     int sc_pipe = open(sc_pipe_name, O_RDWR);
@@ -157,46 +112,31 @@ void receive_message(const char* sc_pipe_name, char* data) {
     if (bytesRead < 256 - 1) {
         cmdBufferFull[bytesRead] = '\0';
     } else {
-        // Handle the case where the buffer is full
         cmdBufferFull[256 - 1] = '\0';
     }
-    //cmdBuffer = getSubstringFromSecondSpace(cmdBuffer);
     char* cmdBuffer = getSubstringFromSecondSpace(cmdBufferFull);
-    //char* cmdBuffer = getSubstringFromSecondSpace(abc);
-
     snprintf(data, 255, "%s", cmdBuffer);
     printf(" The full buffer %s\n", data);
     fflush(stdout);
     close(sc_pipe);
 }
-
-// Function to send quit request to the server
 void send_quit_request(const char* cs_pipe_name) {
     send_message(cs_pipe_name, QUIT_ALL_REQUEST, "");
 }
-
-// Signal handler for handling termination signals
 void handle_termination(int signum) {
-    // Perform cleanup tasks if needed
     exit(EXIT_SUCCESS);
 }
 
 int main(int argc, char *argv[]) {
-    // Register signal handler for termination signals
     signal(SIGTERM, handle_termination);
     signal(SIGINT, handle_termination);
-
     if (argc < 2) {
         fprintf(stderr, "Usage: %s MQNAME [-b COMFILE] [-s WSIZE]\n", argv[0]);
         exit(EXIT_FAILURE);
     }
-
-    // Default values
     char* mq_name = argv[1];
     char* comfile = NULL;
     int wsize = BUFFER_SIZE;
-
-    // Parse command line arguments
     int opt;
     while ((opt = getopt(argc, argv, "b:s:")) != -1) {
         switch (opt) {
@@ -211,42 +151,23 @@ int main(int argc, char *argv[]) {
                 exit(EXIT_FAILURE);
         }
     }
-
     char cs_pipe_name[BUFFER_SIZE];
     char sc_pipe_name[BUFFER_SIZE];
-    // Create named pipes
     create_named_pipes(cs_pipe_name, sc_pipe_name, getpid());
-    // Print paths in client code
-// Print the names of the named pipes
 printf("Client - cs_pipe_name: %s\n", cs_pipe_name);
         fflush(stdout);
-    //printf("Client - cs_pipe: %.*s\n", (int)sizeof(cs_pipe_name), cs_pipe_name);
-    //printf("Client - sc_pipe: %.*s\n", (int)sizeof(sc_pipe_name), sc_pipe_name);
-
-    // Connect to the server
     connect_to_server(mq_name, cs_pipe_name, sc_pipe_name, wsize);
-
-    // Wait for connection confirmation from the server
     wait_for_connection_confirmation(sc_pipe_name);
-
     if (comfile != NULL) {
-        // Batch mode: read commands from file
         FILE* file = fopen(comfile, "r");
         if (file == NULL) {
             perror("Error opening command file");
             exit(EXIT_FAILURE);
         }
-
-        // Handle batch mode commands
         char command[BUFFER_SIZE];
         while (fgets(command, BUFFER_SIZE, file) != NULL) {
-            // Remove newline character
             command[strcspn(command, "\n")] = '\0';
-
-            // Send command to the server
             send_message(cs_pipe_name, COMMAND_LINE, command);
-
-            // Receive and print the result from the server
             char result[BUFFER_SIZE];
             receive_message(sc_pipe_name, result);
             printf("Result from server: %s\n", result);
@@ -254,25 +175,17 @@ printf("Client - cs_pipe_name: %s\n", cs_pipe_name);
 
         fclose(file);
     } else {
-        // Interactive mode: read commands from user
         char command[BUFFER_SIZE];
         printf("Enter commands (type 'quit' or 'quitall' to end):\n");
 
         while (1) {
             printf("> ");
             fgets(command, BUFFER_SIZE, stdin);
-
-            // Remove newline character
             command[strcspn(command, "\n")] = '\0';
-
-            // Check if the user wants to quit or quitall
             if (strcmp(command, "quit") == 0 || strcmp(command, "quitall") == 0) {
                 if (strcmp(command, "quitall") == 0) {
-                    // Send quitall request to the server
                     send_quit_request(cs_pipe_name);
                 }
-
-                // Wait for quit acknowledgment from the server
                 send_message(cs_pipe_name, QUIT_REQUEST, command);
                 char result[BUFFER_SIZE];
                 receive_message(sc_pipe_name, result);
@@ -280,20 +193,13 @@ printf("Client - cs_pipe_name: %s\n", cs_pipe_name);
 
                 break;
             }
-
-            // Send command to the server
             send_message(cs_pipe_name, COMMAND_LINE, command);
-
-            // Receive and print the result from the server
             char result[BUFFER_SIZE];
             receive_message(sc_pipe_name, result);
             printf("Result from server: %s\n", result);
         }
     }
-
-    // Clean up: Remove the named pipes
     unlink(cs_pipe_name);
     unlink(sc_pipe_name);
-
     return 0;
 }
