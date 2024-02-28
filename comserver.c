@@ -16,7 +16,19 @@
 #define QUIT_REQ 5
 #define QUIT_REP 6
 #define QUIT_ALL_REQ 7
+/**
+ * @brief 
+ * 
+ * @param csPipeName 
+ * @param scPipeName 
+ * @param wSize 
+ */
 void handle_client_request(char *csPipeName, char *scPipeName, int wSize);
+/**
+ * @brief 
+ * 
+ * @param value 
+ */
 void save_value_to_file(int value) {
     FILE *file = fopen(".client_num_storage.txt", "w");
     if (file != NULL) {
@@ -26,6 +38,11 @@ void save_value_to_file(int value) {
         perror("Could not open file");
     }
 }
+/**
+ * @brief 
+ * 
+ * @return int 
+ */
 int read_value_from_file() {
     int value = 0;
     FILE *file = fopen(".client_num_storage.txt", "r");
@@ -37,6 +54,12 @@ int read_value_from_file() {
     }
     return value;
 }
+/**
+ * @brief Get the Substring From Second Space object
+ * 
+ * @param input 
+ * @return char* 
+ */
 char* getSubstringFromSecondSpace(char* input) {
     int spaceCount = 0;
     const char* current = input;
@@ -61,7 +84,13 @@ char* getSubstringFromSecondSpace(char* input) {
     memmove(result, result + leadingSpaces, substringLength - leadingSpaces + 1);
     return result;
 }
-
+/**
+ * @brief 
+ * 
+ * @param argc 
+ * @param argv 
+ * @return int 
+ */
 int main(int argc, char *argv[]) {
     if (argc != 2) {
         fprintf(stderr, "Usage of the server: %s <MQNAME>\n", argv[0]);
@@ -119,7 +148,13 @@ int main(int argc, char *argv[]) {
 
     return 0;
 }
-
+/**
+ * @brief 
+ * 
+ * @param csPipeName 
+ * @param scPipeName 
+ * @param wSize 
+ */
 void handle_client_request(char *csPipeName, char *scPipeName, int wSize) {
     int client_count = read_value_from_file();
     // printf("Server - cssc_pipe_name: %s\n", csPipeName);

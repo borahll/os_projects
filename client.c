@@ -16,6 +16,12 @@
 #define QUIT_REQ 5
 #define QUIT_REP 6
 #define QUIT_ALL_REQ 7
+/**
+ * @brief Get the Substring From Second Space object
+ * 
+ * @param input 
+ * @return char* 
+ */
 char* getSubstringFromSecondSpace(char* input) {
     int spaceCount = 0;
     const char* current = input;
@@ -59,6 +65,14 @@ void create_pipes(char* cs_pipe_name, char* sc_pipe_name, pid_t pid) {
         exit(EXIT_FAILURE);
     }
 }
+/**
+ * @brief 
+ * 
+ * @param mq_name 
+ * @param cs_pipe_name 
+ * @param sc_pipe_name 
+ * @param wsize 
+ */
 void connect_server(const char* mq_name, const char* cs_pipe_name, const char* sc_pipe_name, int wsize) {
 // printf("%s\n", cs_pipe_name);
     mqd_t mqd = mq_open(mq_name, O_RDWR);
@@ -79,6 +93,11 @@ void connect_server(const char* mq_name, const char* cs_pipe_name, const char* s
 	//printf("%s\n", cs_pipe_name);
     mq_close(mqd);
 }
+/**
+ * @brief 
+ * 
+ * @param sc_pipe_name 
+ */
 void wait_con_confirmation(const char* sc_pipe_name) {
     int sc_pipe = open(sc_pipe_name, O_RDWR);
     // printf("%s\n", "checkkkk");
@@ -95,6 +114,13 @@ void wait_con_confirmation(const char* sc_pipe_name) {
     printf("Connection is stablished with the server\n");
     close(sc_pipe);
 }
+/**
+ * @brief 
+ * 
+ * @param cs_pipe_name 
+ * @param type 
+ * @param data 
+ */
 void send_message(const char* cs_pipe_name, int type, const char* data) {
     int cs_pipe = open(cs_pipe_name, O_RDWR);
     int data_len = strlen(data) + 1;
@@ -104,6 +130,12 @@ void send_message(const char* cs_pipe_name, int type, const char* data) {
     write(cs_pipe, message, message_len);
     close(cs_pipe);
 }
+/**
+ * @brief 
+ * 
+ * @param sc_pipe_name 
+ * @param data 
+ */
 void receive_message_from_server(const char* sc_pipe_name, char* data) {
     char *cmdBufferFull = (char *)malloc(256 * sizeof(char));
     int sc_pipe = open(sc_pipe_name, O_RDWR);
@@ -119,13 +151,29 @@ void receive_message_from_server(const char* sc_pipe_name, char* data) {
     // fflush(stdout);
     close(sc_pipe);
 }
+/**
+ * @brief 
+ * 
+ * @param cs_pipe_name 
+ */
 void send_quit_request(const char* cs_pipe_name) {
     send_message(cs_pipe_name, QUIT_ALL_REQ, "");
 }
+/**
+ * @brief 
+ * 
+ * @param signum 
+ */
 void handle_termination_request(int signum) {
     exit(EXIT_SUCCESS);
 }
-
+/**
+ * @brief 
+ * 
+ * @param argc 
+ * @param argv 
+ * @return int 
+ */
 int main(int argc, char *argv[]) {
     signal(SIGTERM, handle_termination_request);
     signal(SIGINT, handle_termination_request);
