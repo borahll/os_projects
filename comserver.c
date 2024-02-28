@@ -77,15 +77,8 @@ int main(int argc, char *argv[]) {
         .mq_msgsize = MAX_MSG_SIZE, 
         .mq_curmsgs = 0    
     };
-    printf(" %s\n", "bef mq_open");
-    fflush(stdout);
     mq = mq_open(mqName, O_RDWR | O_CREAT, QUEUE_PERMISSIONS, &attr);
-    printf(" %s\n", "after mq_open");
-    fflush(stdout);
     if (mq == (mqd_t)-1) {
-        printf("%s \n", "done");
-        fflush(stdout);
-
         perror("mq_open");
         exit(EXIT_FAILURE);
     }
@@ -96,37 +89,31 @@ int main(int argc, char *argv[]) {
         memset(buffer, 0, MAX_MSG_SIZE);
         if (mq_receive(mq, buffer, MAX_MSG_SIZE, NULL) == -1) {
             perror("mq_receive");
-            printf("%s \n", "entered mq recieve");
-            fflush(stdout);
-
             continue;
         }
         char csPipeName[100], scPipeName[100];
         int wSize;
-        printf("%s\n", buffer);
-        fflush(stdout);
         int connection_info_len = 0;
         int connection_request = 0; //DELETE THIS. ONLY FOR DEVELOPMENT!!!!
         sscanf(buffer, "%d %d %s %s %d", &connection_info_len, &connection_request, csPipeName ,scPipeName, &wSize);
-        printf("The wsize : %d \n", wSize);
         pid_t pid = fork();
         if (pid == 0) {
-            printf("%s \n", "main hande client");
-                    fflush(stdout);
+            // printf("%s \n", "main hande client");
+            //         fflush(stdout);
 
             handle_client(csPipeName, scPipeName, wSize);
             exit(EXIT_SUCCESS); 
         }
         else if (pid < 0) {
             perror("fork");
-                printf("%s \n", "err");
-                        fflush(stdout);
+                // printf("%s \n", "err");
+                //         fflush(stdout);
 
             continue; 
         }
     }
-        printf("%s \n", "done");
-        fflush(stdout);
+        // printf("%s \n", "done");
+        // fflush(stdout);
     mq_close(mq);
     mq_unlink(mqName);
 
@@ -135,19 +122,19 @@ int main(int argc, char *argv[]) {
 
 void handle_client(char *csPipeName, char *scPipeName, int wSize) {
     int client_count = read_value();
-    printf("Server - cssc_pipe_name: %s\n", csPipeName);
-    fflush(stdout);
+    // printf("Server - cssc_pipe_name: %s\n", csPipeName);
+    // fflush(stdout);
     int csPipe = open(csPipeName, O_RDWR);
-    printf(" %s\n", "bef open");
-    fflush(stdout);
+    // printf(" %s\n", "bef open");
+    // fflush(stdout);
     client_count = read_value();
     client_count = client_count + 1;
     save_value(client_count);
     int scPipe = open(scPipeName, O_RDWR);
-    printf("%s\n", "after open");
-    fflush(stdout);
-    printf("Server - cssc_pipe_name: %s\n", csPipeName);
-    printf("Server - sc_pipe: %s\n", scPipeName);
+    // printf("%s\n", "after open");
+    // fflush(stdout);
+    // printf("Server - cssc_pipe_name: %s\n", csPipeName);
+    // printf("Server - sc_pipe: %s\n", scPipeName);
     printf("Server - client count: %d\n", client_count);
         fflush(stdout);
     char *cmdBufferFull = (char *)malloc(MAX_MSG_SIZE * sizeof(char));
@@ -168,8 +155,6 @@ void handle_client(char *csPipeName, char *scPipeName, int wSize) {
     write(scPipe, message, wSize);
 
     while (1) {
-        printf("%s \n", "entered handle client");
-        fflush(stdout);
         int bytesRead = read(csPipe, cmdBufferFull, MAX_MSG_SIZE - 1);
         if (bytesRead <= 0) {
             break;
@@ -197,7 +182,9 @@ void handle_client(char *csPipeName, char *scPipeName, int wSize) {
         pid_t pid = fork();
         if (pid == 0) {
             dup2(fileno(fp), STDOUT_FILENO);
-            execlp("sh", "sh", "-c", cmdBuffer, (char *)NULL);
+            if(strcmp(cmdBuffer, "quit") != 0){
+                execlp("sh", "sh", "-c", cmdBuffer, (char *)NULL);
+            }
             exit(EXIT_FAILURE); 
         }
         wait(NULL);
@@ -207,8 +194,8 @@ void handle_client(char *csPipeName, char *scPipeName, int wSize) {
             int message_len = 7 + data_len;
             char message[BUFFER_SIZE];
             sprintf(message, "%4d%1d%3s%s", message_len, COMMAND_RESULT, "", responseBuffer);
-            printf("The message from the server: %s \n ", message);
-            fflush(stdout);
+            // printf("The message from the server: %s \n ", message);
+            // fflush(stdout);
             write(scPipe, message, bytesRead + 6 + 1);
         }
         fclose(fp);
