@@ -223,10 +223,8 @@ int main(int argc, char *argv[]) {
         fclose(file);
     } else {
         char command[BUFFER_SIZE];
-        printf("Enter commands (type 'quit' or 'quitall' to end):\n");
-
         while (1) {
-            printf("> ");
+            printf("type command: ");
             fgets(command, BUFFER_SIZE, stdin);
             command[strcspn(command, "\n")] = '\0';
             if (strcmp(command, "quit") == 0 || strcmp(command, "quitall") == 0) {
