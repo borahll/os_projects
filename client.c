@@ -126,7 +126,7 @@ void send_message(const char* cs_pipe_name, int type, const char* data) {
     int data_len = strlen(data) + 1;
     int message_len = 7 + data_len;
     char message[BUFFER_SIZE];
-    sprintf(message, "%4d%1d%3s%s", message_len, type, "", data);
+    sprintf(message, "%3d %1d%3s%s", message_len, type, "", data);
     write(cs_pipe, message, message_len);
     close(cs_pipe);
 }
@@ -157,7 +157,7 @@ void receive_message_from_server(const char* sc_pipe_name, char* data) {
  * @param cs_pipe_name 
  */
 void send_quit_request(const char* cs_pipe_name) {
-    send_message(cs_pipe_name, QUIT_ALL_REQ, "");
+    send_message(cs_pipe_name, QUIT_REQ, "");
 }
 /**
  * @brief 
@@ -217,7 +217,7 @@ int main(int argc, char *argv[]) {
             send_message(cs_pipe_name, SEND_COMMAND, command);
             char result[BUFFER_SIZE];
             receive_message_from_server(sc_pipe_name, result);
-            printf("Result from server: %s\n", result);
+            printf("%s\n", result);
         }
 
         fclose(file);
@@ -234,14 +234,14 @@ int main(int argc, char *argv[]) {
                 send_message(cs_pipe_name, QUIT_REQ, command);
                 char result[BUFFER_SIZE];
                 receive_message_from_server(sc_pipe_name, result);
-                printf("Result from server: %s\n", result);
+                printf("%s\n", result);
 
                 break;
             }
             send_message(cs_pipe_name, SEND_COMMAND, command);
             char result[BUFFER_SIZE];
             receive_message_from_server(sc_pipe_name, result);
-            printf("Result from server: %s\n", result);
+            printf("%s\n", result);
         }
     }
     unlink(cs_pipe_name);

@@ -6,6 +6,7 @@
 #include <sys/wait.h>
 #include <mqueue.h>
 #include <string.h>
+#include <ctype.h>
 #define MAX_MSG_SIZE 256
 #define QUEUE_PERMISSIONS 0660
 #define BUFFER_SIZE 1024
@@ -16,6 +17,25 @@
 #define QUIT_REQ 5
 #define QUIT_REP 6
 #define QUIT_ALL_REQ 7
+/**
+ * @brief 
+ * 
+ * @param input 
+ */
+char* extract_number(const char* input) {
+    char* output = (char *)malloc(strlen(input) * sizeof(char));
+    char* outputStart = output;
+
+    while (*input) {
+        if (isdigit(*input)) {
+            *output = *input;
+            ++output;
+        }
+        ++input;
+    }
+    *output = '\0';
+    return outputStart;
+}
 /**
  * @brief 
  * 
@@ -175,11 +195,14 @@ void handle_client_request(char *csPipeName, char *scPipeName, int wSize) {
     char *cmdBufferFull = (char *)malloc(MAX_MSG_SIZE * sizeof(char));
     char responseBuffer[MAX_MSG_SIZE];
     FILE *fp;
-    const char *tempFileName = "comserver_temp";
+    //const char *tempFileName = "comserver_temp";
     if (csPipe == -1 || scPipe == -1) {
         perror("Error when opening pipes");
         return;
     }
+    //server main: CONREQUEST message received: pid=13153, cs=FIFO-CS-13153 sc=FIFO-SC-13153, wsize=1
+    printf("server main: CONREQUEST message recieved pid = %s, cs= %s, sc= %s, wsize= %d \n", extract_number(scPipeName), csPipeName, scPipeName, wSize);
+    fflush(stdout);
     strcpy(responseBuffer, "Connection established");
     int data_len = strlen(responseBuffer) + 1; 
     int message_len = 7 + data_len; 
@@ -196,7 +219,38 @@ void handle_client_request(char *csPipeName, char *scPipeName, int wSize) {
         } else {
             cmdBufferFull[MAX_MSG_SIZE - 1] = '\0';
         }
+        int lenght, type;
+        char data[wSize];
+        sscanf(cmdBufferFull, "%d%d%s", &lenght, &type, data);
+        /*
+            #define CONNECTION_REQ 1
+            #define CONNECTION_REP 2
+            #define SEND_COMMAND 3
+            #define COMMAND_RES 4
+            #define QUIT_REQ 5
+            #define QUIT_REP 6
+            #define QUIT_ALL_REQ 7
+        */
+       //server child: COMLINE message received: len=27, type=3, data=cat atextfile.txt
+        switch (type)
+        {
+        case CONNECTION_REQ:
+            printf("server child: COMLINE message received:");
+            fflush(stdout);
+            break;
+        case SEND_COMMAND:
+            printf("server child: COMLINE message received:");
+            fflush(stdout);
+            break;
+        case QUIT_REQ:
+            break;
+        case QUIT_ALL_REQ:
+            break;
+        default:
+            break;
+        }
         char* abc = getSubstringFromSecondSpace(cmdBufferFull);
+        //char* acb = getSubstringFromSecondSpace(abc);
         char* cmdBuffer = getSubstringFromSecondSpace(abc);
         if (strcmp(cmdBuffer, "quit") == 0) {
             client_count = read_value_from_file();
