@@ -234,17 +234,17 @@ void handle_client_request(char *csPipeName, char *scPipeName, int wSize) {
        //server child: COMLINE message received: len=27, type=3, data=cat atextfile.txt
         switch (type)
         {
-        case CONNECTION_REQ:
-            printf("server child: COMLINE message received:");
-            fflush(stdout);
-            break;
         case SEND_COMMAND:
-            printf("server child: COMLINE message received:");
+            printf("server child: COMLINE message received: len = %d, type = %d, data = %s \n", lenght, type, data);
             fflush(stdout);
             break;
         case QUIT_REQ:
+            printf("server child: QUIT_REQ message received: len = %d, type = %d, data = %s \n", lenght, type, data);
+            fflush(stdout);
             break;
         case QUIT_ALL_REQ:
+            printf("server child: QUIT_REQ message received: len = %d, type = %d, data = %s \n", lenght, type, data);
+            fflush(stdout);
             break;
         default:
             break;
@@ -273,6 +273,8 @@ void handle_client_request(char *csPipeName, char *scPipeName, int wSize) {
             }
             exit(EXIT_FAILURE); 
         }
+        printf("command execution finished \n");
+        fflush(stdout);
         wait(NULL);
         fseek(fp, 0, SEEK_SET);
         while ((bytesRead = fread(responseBuffer, 1, sizeof(responseBuffer), fp)) > 0) {
