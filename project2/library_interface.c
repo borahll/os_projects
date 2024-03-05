@@ -25,6 +25,16 @@ typedef struct {
 
 static TSL_Library tsl_library_instance = {0, 1, 0, NULL, 0};
 
+// Forward declarations
+void* thread_start_function(void *arg);
+int tsl_exit();
+int tsl_yield(int tid);
+int tsl_create_thread(void* (*tsf)(void*), void* targ);
+int tsl_cancel(int tid);
+int tsl_join(int tid);
+int tsl_gettid();
+int tsl_init(int salg);
+
 static TSL_Thread* find_thread_by_id(int tid) {
     for (int i = 0; i < tsl_library_instance.num_threads; i++) {
         if (tsl_library_instance.threads[i]->tid == tid) {
@@ -34,7 +44,7 @@ static TSL_Thread* find_thread_by_id(int tid) {
     return NULL;
 }
 
-static void* thread_start_function(void *arg) {
+void* thread_start_function(void *arg) {
     int tid = *(int*)arg;
 
     // Simulate the execution of the thread start function
@@ -49,6 +59,7 @@ static void* thread_start_function(void *arg) {
 
     // Mark the thread as deleted and exit
     tsl_exit();
+    return NULL;
 }
 
 int tsl_exit() {
@@ -117,7 +128,7 @@ int tsl_yield(int tid) {
     return tsl_library_instance.current_thread_id;
 }
 
-int tsl_create_thread(void (*tsf)(int), int tid) {
+int tsl_create_thread(void* (*tsf)(void*), void* targ) {
     // Create a new thread structure
     TSL_Thread *new_thread = (TSL_Thread*)malloc(sizeof(TSL_Thread));
     if (new_thread == NULL) {
@@ -126,7 +137,7 @@ int tsl_create_thread(void (*tsf)(int), int tid) {
     }
 
     // Initialize the thread structure
-    new_thread->tid = tid;
+    new_thread->tid = tsl_library_instance.next_thread_id++;
     new_thread->ready = 1;
 
     // Add the thread to the library's threads array
@@ -140,13 +151,13 @@ int tsl_create_thread(void (*tsf)(int), int tid) {
     tsl_library_instance.threads[tsl_library_instance.num_threads++] = new_thread;
 
     // Create a new POSIX thread
-    if (pthread_create(&(new_thread->pthread_id), NULL, thread_start_function, &tid) != 0) {
+    if (pthread_create(&(new_thread->pthread_id), NULL, tsf, targ) != 0) {
         fprintf(stderr, "Error: Unable to create a new thread.\n");
         free(new_thread);
         return TSL_ERROR;
     }
 
-    return tid;
+    return new_thread->tid;
 }
 
 int tsl_cancel(int tid) {
@@ -215,8 +226,11 @@ int main() {
     // Example usage of the library
     tsl_init(0); // Initialize the library with a scheduling algorithm (round-robin in this case)
 
-    int tid1 = tsl_create_thread(thread_start_function, 1);
-    int tid2 = tsl_create_thread(thread_start_function, 2);
+    int tid1, tid2;
+
+    // Create threads after initializing the library
+    tid1 = tsl_create_thread(thread_start_function, (void*)&tid1);
+    tid2 = tsl_create_thread(thread_start_function, (void*)&tid2);
 
     printf("Main thread is running with tid: %d.\n", tsl_gettid());
 
@@ -224,19 +238,19 @@ int main() {
     tsl_yield(TSL_ANY);
 
     // Cancel Thread 1 asynchronously
-    int canceled_tid = tsl_cancel(1);
+    int canceled_tid = tsl_cancel(tid1);
     if (canceled_tid != TSL_ERROR) {
         printf("Thread %d has been canceled.\n", canceled_tid);
     } else {
-        printf("Thread %d does not exist or has already terminated.\n", 1);
+        printf("Thread %d does not exist or has already terminated.\n", tid1);
     }
 
     // Wait for Thread 2 to terminate
-    int joined_tid = tsl_join(2);
+    int joined_tid = tsl_join(tid2);
     if (joined_tid != TSL_ERROR) {
         printf("Main thread joined Thread %d.\n", joined_tid);
     } else {
-        printf("Thread %d does not exist or has already terminated.\n", 2);
+        printf("Thread %d does not exist or has already terminated.\n", tid2);
     }
 
     // This point will be reached only if all threads have terminated
