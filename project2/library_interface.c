@@ -90,32 +90,51 @@ void* thread_start_function(void *arg) {
 }
 
 int tsl_exit() {
-    // Find the current thread
-    TSL_Thread *current_thread = find_thread_by_id(tsl_library_instance.current_thread_id);
+    pthread_mutex_lock(&tsl_library_instance.mutex);
 
-    // Mark the thread as not ready
-    current_thread->ready = 0;
-
-    // Signal waiting threads
-    pthread_cond_signal(&tsl_library_instance.cond);
-
-    // Check if this is the last active thread
-    int active_threads = 0;
+    // Find the current thread's index and mark it as not ready
+    int current_thread_index = -1;
+    TSL_Thread *current_thread = NULL;
     for (int i = 0; i < tsl_library_instance.num_threads; i++) {
-        if (tsl_library_instance.threads[i]->ready) {
-            active_threads++;
+        if (tsl_library_instance.threads[i]->tid == tsl_library_instance.current_thread_id) {
+            current_thread = tsl_library_instance.threads[i];
+            current_thread_index = i;
+            break;
         }
     }
 
-    if (active_threads == 0) {
-        // If this is the last active thread, terminate the whole process
-        exit(0);
+    if (current_thread != NULL) {
+        current_thread->ready = 0;
+
+        // Remove the thread from the scheduling queue
+        // This involves shifting remaining threads in the array to fill the gap
+        for (int i = current_thread_index; i < tsl_library_instance.num_threads - 1; i++) {
+            tsl_library_instance.threads[i] = tsl_library_instance.threads[i + 1];
+        }
+        tsl_library_instance.num_threads--;
+        // Optionally, you could resize the threads array to free unused space
+
+        // Signal that a thread has exited, in case any threads are waiting to join
+        pthread_cond_broadcast(&tsl_library_instance.cond);
     }
 
-    // This point should never be reached
-    fprintf(stderr, "Error: tsl_exit() should not return.\n");
-    exit(EXIT_FAILURE);
+    pthread_mutex_unlock(&tsl_library_instance.mutex);
+
+    if (current_thread != NULL) {
+        // Clean up the TSL_Thread structure for the current thread
+        // Note: Actual memory deallocation should happen outside the lock
+        // to avoid holding the lock while calling pthread_exit() which could
+        // lead to deadlock if another thread is trying to join this one.
+        free(current_thread);
+    }
+
+    // Exit the pthread, allowing it to be joined
+    pthread_exit(NULL);
+
+    // Unreachable code due to pthread_exit, but included to satisfy compiler
+    return 0; // Success
 }
+
 
 int tsl_create_thread(void* (*tsf)(void*), void* targ) {
     // Check if the library has been initialized
