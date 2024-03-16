@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <pthread.h>
 #include <unistd.h>
-
+#include <ucontext.h>
 #define TSL_MAXTHREADS 256 // maximum number of threads (including the main thread) that an application can have.
 #define TSL_STACKSIZE  32768 // bytes, i.e., 32 KB. This is the stack size for a new thread. 
 
@@ -18,16 +18,17 @@
 #define TSL_SUCCESS 0  // function execution success
 
 typedef struct {
-    int tid;
-    int ready;
-    pthread_t pthread_id;
-} TSL_Thread;
+    int tid; // thread identifier
+    unsigned int state; // thread state
+    ucontext_t context; // pointer to context structure
+    char *stack; // pointer to stack
+} TCB;
 
 typedef struct {
     int scheduling_algorithm;
     int next_thread_id;
     int current_thread_id;
-    TSL_Thread **threads;
+    TCB **threads;
     int num_threads;
     pthread_mutex_t mutex;
     pthread_cond_t cond;
@@ -44,7 +45,7 @@ int tsl_join(int tid);
 int tsl_gettid();
 int tsl_init(int salg);
 
-static TSL_Thread* find_thread_by_id(int tid) {
+static TCB* find_thread_by_id(int tid) {
     for (int i = 0; i < tsl_library_instance.num_threads; i++) {
         if (tsl_library_instance.threads[i]->tid == tid) {
             return tsl_library_instance.threads[i];
@@ -53,18 +54,18 @@ static TSL_Thread* find_thread_by_id(int tid) {
     return NULL;
 }
 
-void cleanup_thread(TSL_Thread *thread) {
+void cleanup_thread(TCB *thread) {
     // Clean up resources (for demonstration purposes)
     printf("Cleaning up resources for Thread %d.\n", thread->tid);
 
-    // Mark the thread as not ready
-    thread->ready = 0;
+    // Mark the thread as not state
+    thread->state = 0;
 
     // Signal waiting threads
     pthread_cond_signal(&tsl_library_instance.cond);
 
     // Join the thread to release resources
-    pthread_join(thread->pthread_id, NULL);
+    pthread_join(thread->tid, NULL);
 
     // Free the resources
     free(thread);
@@ -85,7 +86,7 @@ void* thread_start_function(void *arg) {
         // Loop to simulate thread switching
         while (1) {
             pthread_mutex_lock(&tsl_library_instance.mutex);
-            if (tsl_library_instance.threads[(tsl_library_instance.current_thread_id + 1) % tsl_library_instance.num_threads]->ready) {
+            if (tsl_library_instance.threads[(tsl_library_instance.current_thread_id + 1) % tsl_library_instance.num_threads]->state) {
                 tsl_library_instance.current_thread_id = (tsl_library_instance.current_thread_id + 1) % tsl_library_instance.num_threads;
                 pthread_mutex_unlock(&tsl_library_instance.mutex);
                 break;
@@ -103,9 +104,9 @@ void* thread_start_function(void *arg) {
 int tsl_exit() {
     pthread_mutex_lock(&tsl_library_instance.mutex);
 
-    // Find the current thread's index and mark it as not ready
+    // Find the current thread's index and mark it as not state
     int current_thread_index = -1;
-    TSL_Thread *current_thread = NULL;
+    TCB *current_thread = NULL;
     for (int i = 0; i < tsl_library_instance.num_threads; i++) {
         if (tsl_library_instance.threads[i]->tid == tsl_library_instance.current_thread_id) {
             current_thread = tsl_library_instance.threads[i];
@@ -115,7 +116,7 @@ int tsl_exit() {
     }
 
     if (current_thread != NULL) {
-        current_thread->ready = 0;
+        current_thread->state = 0;
 
         // Remove the thread from the scheduling queue
         // This involves shifting remaining threads in the array to fill the gap
@@ -158,7 +159,7 @@ int tsl_create_thread(void* (*tsf)(void*), void* targ) {
     pthread_mutex_lock(&tsl_library_instance.mutex);
 
     // Create a new thread structure
-    TSL_Thread *new_thread = (TSL_Thread*)malloc(sizeof(TSL_Thread));
+    TCB *new_thread = (TCB*)malloc(sizeof(TCB));
     if (new_thread == NULL) {
         fprintf(stderr, "Error: Unable to allocate memory for the new thread.\n");
         // Unlock the mutex before returning
@@ -168,10 +169,10 @@ int tsl_create_thread(void* (*tsf)(void*), void* targ) {
 
     // Initialize the thread structure
     new_thread->tid = tsl_library_instance.next_thread_id++;
-    new_thread->ready = 1;
+    new_thread->state = 1;
 
     // Add the thread to the library's threads array
-    tsl_library_instance.threads = realloc(tsl_library_instance.threads, (tsl_library_instance.num_threads + 1) * sizeof(TSL_Thread*));
+    tsl_library_instance.threads = realloc(tsl_library_instance.threads, (tsl_library_instance.num_threads + 1) * sizeof(TCB*));
     if (tsl_library_instance.threads == NULL) {
         fprintf(stderr, "Error: Unable to allocate memory for the new thread.\n");
         free(new_thread);
@@ -183,7 +184,7 @@ int tsl_create_thread(void* (*tsf)(void*), void* targ) {
     tsl_library_instance.threads[tsl_library_instance.num_threads++] = new_thread;
 
     // Create a new POSIX thread
-    if (pthread_create(&(new_thread->pthread_id), NULL, tsf, (void*)&new_thread->tid) != 0) {
+    if (pthread_create(&(new_thread->tid), NULL, tsf, (void*)&new_thread->tid) != 0) {
         fprintf(stderr, "Error: Unable to create a new thread.\n");
         cleanup_thread(new_thread);
         // Unlock the mutex before returning
@@ -199,21 +200,21 @@ int tsl_create_thread(void* (*tsf)(void*), void* targ) {
 
 int tsl_cancel(int tid) {
     // Find the target thread
-    TSL_Thread *target_thread = find_thread_by_id(tid);
+    TCB *target_thread = find_thread_by_id(tid);
 
-    // If the target thread doesn't exist or has already terminated, return immediately
-    if (target_thread == NULL || !target_thread->ready) {
+    // If the target thread doesn't exist or has alstate terminated, return immediately
+    if (target_thread == NULL || !target_thread->state) {
         return TSL_ERROR;
     }
 
     // Cancel the target thread asynchronously
-    if (pthread_cancel(target_thread->pthread_id) != 0) {
+    if (pthread_cancel(target_thread->tid) != 0) {
         fprintf(stderr, "Error: Unable to cancel the target thread.\n");
         return TSL_ERROR;
     }
 
-    // Mark the thread as not ready
-    target_thread->ready = 0;
+    // Mark the thread as not state
+    target_thread->state = 0;
 
     // Signal waiting threads
     pthread_cond_signal(&tsl_library_instance.cond);
@@ -226,15 +227,15 @@ int tsl_cancel(int tid) {
 
 int tsl_join(int tid) {
     // Find the target thread
-    TSL_Thread *target_thread = find_thread_by_id(tid);
+    TCB *target_thread = find_thread_by_id(tid);
 
-    // If the target thread doesn't exist or has already terminated, return immediately
-    if (target_thread == NULL || !target_thread->ready) {
+    // If the target thread doesn't exist or has alstate terminated, return immediately
+    if (target_thread == NULL || !target_thread->state) {
         return TSL_ERROR;
     }
 
     // Wait for the target thread to terminate
-    pthread_join(target_thread->pthread_id, NULL);
+    pthread_join(target_thread->tid, NULL);
 
     // Clean up resources used by the target thread
     cleanup_thread(target_thread);
@@ -249,9 +250,9 @@ int tsl_gettid() {
 }
 
 int tsl_init(int salg) {
-    // Check if the library has already been initialized
+    // Check if the library has alstate been initialized
     if (tsl_library_instance.threads != NULL) {
-        fprintf(stderr, "Error: Library already initialized.\n");
+        fprintf(stderr, "Error: Library alstate initialized.\n");
         return TSL_ERROR;
     }
 
@@ -259,7 +260,7 @@ int tsl_init(int salg) {
     tsl_library_instance.scheduling_algorithm = salg;
 
     // Initialize the threads array
-    tsl_library_instance.threads = (TSL_Thread**)malloc(sizeof(TSL_Thread*));
+    tsl_library_instance.threads = (TCB**)malloc(sizeof(TCB*));
     if (tsl_library_instance.threads == NULL) {
         fprintf(stderr, "Error: Unable to allocate memory for the threads array.\n");
         return TSL_ERROR;
@@ -283,9 +284,8 @@ int main() {
     printf("Main thread is running with tid: %d.\n", tsl_gettid());
 
     // Wait for the threads to finish
-    pthread_join(tsl_library_instance.threads[0]->pthread_id, NULL);
-    pthread_join(tsl_library_instance.threads[1]->pthread_id, NULL);
-
+    pthread_join(tsl_library_instance.threads[0]->tid, NULL);
+    pthread_join(tsl_library_instance.threads[1]->tid, NULL);
     // This point will be reached only if all threads have terminated
     printf("All threads have terminated. Exiting.\n");
 
