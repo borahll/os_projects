@@ -74,31 +74,36 @@ void cleanup_thread(TCB *thread) {
 void* thread_start_function(void *arg) {
     int tid = *(int*)arg;
 
-    // Simulate the execution of the thread start function
     printf("Thread %d is running.\n", tid);
 
-    // Simulate some work done by the thread
     for (int i = 0; i < 3; i++) {
         printf("Thread %d is doing some work.\n", tid);
-        // Simulate yielding to another thread
-        usleep(10000); // Sleep for 10 milliseconds
+        usleep(10000); // Simulate work by sleeping
 
-        // Loop to simulate thread switching
-        while (1) {
-            pthread_mutex_lock(&tsl_library_instance.mutex);
-            if (tsl_library_instance.threads[(tsl_library_instance.current_thread_id + 1) % tsl_library_instance.num_threads]->state) {
-                tsl_library_instance.current_thread_id = (tsl_library_instance.current_thread_id + 1) % tsl_library_instance.num_threads;
-                pthread_mutex_unlock(&tsl_library_instance.mutex);
-                break;
-            }
-            pthread_mutex_unlock(&tsl_library_instance.mutex);
-            usleep(1000); // Sleep for 1 millisecond
-        }
+        tsl_yield(); // Yield execution back to the scheduler
     }
 
-    // Mark the thread as deleted and exit
-    tsl_exit();
-    return NULL;
+    tsl_exit(); // Terminate the thread
+    return NULL; // Unreachable, here to satisfy the compiler
+}
+
+void tsl_yield() {
+    int current_index = tsl_library_instance.current_thread_id;
+    int next_index = (current_index + 1) % tsl_library_instance.num_threads;
+    TCB *current_thread = tsl_library_instance.threads[current_index];
+    TCB *next_thread = tsl_library_instance.threads[next_index];
+
+    if (getcontext(&current_thread->context) == -1) {
+        fprintf(stderr, "Error: Failed to get current context.\n");
+        exit(EXIT_FAILURE);
+    }
+
+    tsl_library_instance.current_thread_id = next_index; // Update the current thread index to the next thread
+
+    if (setcontext(&next_thread->context) == -1) {
+        fprintf(stderr, "Error: Failed to set next context.\n");
+        exit(EXIT_FAILURE);
+    }
 }
 
 int tsl_exit() {
