@@ -85,18 +85,37 @@ int scheduler_next_thread() {
 
 
 int tsl_init(int salg) {
-    if (library_initialized) return TSL_ERROR;
-    
-    memset(scheduler.threads, 0, sizeof(scheduler.threads));
-    nextTid = 1; // Start TIDs from 1; 0 could be a special case (e.g., TSL_ANY).
+    if (library_initialized) return TSL_ERROR; // Ensure this function is only called once
+
     library_initialized = true;
-    
-    // Further initialization based on `salg` if needed.
+
+    // Initialize the scheduler with the specified algorithm
+    scheduler.algorithm = (salg == 0) ? FIFO : RR; // Assuming 0 for FIFO, others for RR
+    scheduler.currentThreadIndex = 0; // Set the main thread as the current thread
+    scheduler.threadCount = 1; // Including the main thread
+
+    // Initialize the TCB for the main thread
+    ThreadControlBlock *main_tcb = &scheduler.threads[0];
+    main_tcb->isActive = true;
+    main_tcb->tid = 0; // Assigning 0 as the TID for the main thread
+    main_tcb->state = RUNNING; // Main thread is already running
+    main_tcb->stack = NULL; // Main thread's stack is managed by the OS, not by our library
+
+    // Use getcontext() to capture the current context of the main thread
+    if (getcontext(&main_tcb->context) == -1) {
+        // Handle error
+        fprintf(stderr, "Failed to get context for the main thread.\n");
+        exit(TSL_ERROR);
+    }
+
+    // Further initialization based on `salg` if needed
     
     return TSL_SUCCESS;
 }
 
+
 int tsl_create_thread(void (*tsf)(void *), void *targ) {
+    
     if (!library_initialized) {
         return TSL_ERROR;
     }
@@ -105,24 +124,27 @@ int tsl_create_thread(void (*tsf)(void *), void *targ) {
     if (!tcb) {
         return TSL_ERROR; // Failed to allocate memory for TCB
     }
-
+    
     tcb->stack = malloc(TSL_STACK_SIZE);
     if (!tcb->stack) {
         free(tcb); // Clean up partially created thread
         return TSL_ERROR; // Failed to allocate stack
     }
-
+    printf("inside2");
     if (getcontext(&tcb->context) == -1) {
         free(tcb->stack);
         free(tcb);
         return TSL_ERROR; // Failed to initialize thread context
     }
-
+printf("inside3");
     tcb->context.uc_stack.ss_sp = tcb->stack;
+    
     tcb->context.uc_stack.ss_size = TSL_STACK_SIZE;
+   
     tcb->context.uc_stack.ss_flags = 0;
+    
     tcb->context.uc_link = 0;
-
+    
     // Directly manipulating mcontext to set the instruction pointer and argument.
     // This is highly platform and implementation-specific.
     // The following lines are illustrative and might require adjustment for your specific environment
@@ -132,6 +154,7 @@ int tsl_create_thread(void (*tsf)(void *), void *targ) {
 
     // The scheduler is responsible for setting the thread's initial state and tid
     scheduler_add_thread(tcb);
+   
 
     return tcb->tid; // The scheduler_add_thread function now assigns and returns the tid
 }
@@ -142,7 +165,7 @@ int tsl_yield(int tid) {
         fprintf(stderr, "Error: Library not initialized.\n");
         return TSL_ERROR;
     }
-
+       printf(" CURRENT:%d\n", scheduler.currentThreadIndex);
     // Yielding to any thread if tid is -1
     if (tid == -1) {
         // Save the current context and let the scheduler decide the next thread
@@ -150,6 +173,11 @@ int tsl_yield(int tid) {
             if (getcontext(&scheduler.threads[scheduler.currentThreadIndex]->context) == 0) {
                 int nextThread = scheduler_next_thread();
                 if (nextThread != -1) {
+                     
+
+	
+
+                    scheduler.threads[scheduler.currentThreadIndex]->state = READY; // Mark the current thread as ready 
                     scheduler.currentThreadIndex = nextThread;
                     scheduler.threads[nextThread]->state = RUNNING;
                     setcontext(&scheduler.threads[nextThread]->context);
@@ -189,12 +217,16 @@ int tsl_yield(int tid) {
 
 
 
+
 int tsl_join(int tid) {
     // Validate the tid. Assuming TSL_MAX_THREADS is the upper limit.
+    printf("entered\n");
     if (tid < 0 || tid >= TSL_MAX_THREADS) {
         fprintf(stderr, "Error: Invalid thread ID passed to tsl_join.\n");
         return TSL_ERROR;
     }
+    printf("entered\n");
+    
 
     // Check if the target thread is valid and not yet terminated.
     ThreadControlBlock* target_tcb = scheduler.threads[tid];
@@ -202,6 +234,7 @@ int tsl_join(int tid) {
         fprintf(stderr, "Error: No thread with ID %d exists.\n", tid);
         return TSL_ERROR;
     }
+    printf("entered2\n");
 
     if (target_tcb->state == TERMINATED) {
         // If already terminated, simply clean up. This is a no-op if cleanup already happened.
@@ -212,9 +245,11 @@ int tsl_join(int tid) {
         scheduler.threads[tid] = NULL; // Remove from scheduler
         return TSL_SUCCESS;
     }
+    printf("entered3\n");
 
     // Wait for the thread to terminate, yielding to any thread if the target thread is still running.
     while (target_tcb->state != TERMINATED) {
+        
         //printf("here \n");
         tsl_yield(-1); // Yield to any available thread
         //printf("here1 \n");
