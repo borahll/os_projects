@@ -8,7 +8,7 @@
 #define TSL_SUCCESS 0
 #define TSL_STACK_SIZE (1024*64)
 
-typedef enum { FIFO, RR, SJF, SRTF } SchedulingAlgorithm;
+typedef enum { FIFO, RR} SchedulingAlgorithm;
 typedef enum { READY, RUNNING, TERMINATED } ThreadState;
 
 typedef struct ThreadControlBlock {
@@ -97,7 +97,7 @@ int tsl_init(int salg) {
 }
 
 int tsl_create_thread(void (*tsf)(void *), void *targ) {
-    if (!library_initialized || scheduler.threadCount >= TSL_MAX_THREADS) {
+    if (!library_initialized) {
         return TSL_ERROR;
     }
 
@@ -122,7 +122,13 @@ int tsl_create_thread(void (*tsf)(void *), void *targ) {
     tcb->context.uc_stack.ss_size = TSL_STACK_SIZE;
     tcb->context.uc_stack.ss_flags = 0;
     tcb->context.uc_link = 0;
-    makecontext(&tcb->context, (void (*)(void))tsf, 1, targ);
+
+    // Directly manipulating mcontext to set the instruction pointer and argument.
+    // This is highly platform and implementation-specific.
+    // The following lines are illustrative and might require adjustment for your specific environment
+    // or might not work without inline assembly or other non-standard techniques.
+    // tcb->context.uc_mcontext.gregs[REG_RIP] = (greg_t)tsf; // Set instruction pointer to start function
+    // tcb->context.uc_mcontext.gregs[REG_RDI] = (greg_t)targ; // Set first argument to the start function
 
     // The scheduler is responsible for setting the thread's initial state and tid
     scheduler_add_thread(tcb);
@@ -147,9 +153,12 @@ int tsl_yield(int tid) {
                     scheduler.currentThreadIndex = nextThread;
                     scheduler.threads[nextThread]->state = RUNNING;
                     setcontext(&scheduler.threads[nextThread]->context);
+                    printf("entered\n");
                 }
+                printf("entered1\n");
                 // If no next thread is found, it's a no-op or you might want to handle this case specifically.
             }
+
         }
         return TSL_SUCCESS;
     }
@@ -165,6 +174,7 @@ int tsl_yield(int tid) {
         // Save the current context if we are currently running a thread
         if (scheduler.currentThreadIndex >= 0 && getcontext(&scheduler.threads[scheduler.currentThreadIndex]->context) == 0) {
             // Switch to the specified thread directly
+            printf("the id: %d\n", tid);
             scheduler.currentThreadIndex = tid;
             scheduler.threads[tid]->state = RUNNING;
             setcontext(&scheduler.threads[tid]->context);
@@ -205,7 +215,10 @@ int tsl_join(int tid) {
 
     // Wait for the thread to terminate, yielding to any thread if the target thread is still running.
     while (target_tcb->state != TERMINATED) {
+        //printf("here \n");
         tsl_yield(-1); // Yield to any available thread
+        //printf("here1 \n");
+
     }
 
     // Post-termination cleanup. This might be redundant if `tsl_exit` already performs cleanup,
