@@ -1,8 +1,18 @@
-#include <ucontext.h>
-#include <stdlib.h>
-#include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <malloc.h>
+#include <assert.h>
 #include <stdbool.h>
+
+/* We want the extra information from these definitions */
+#ifndef __USE_GNU
+#define __USE_GNU
+#endif /* __USE_GNU */
+#include <ucontext.h>
+
+
+#include "tsl.h"
 #define TSL_MAX_THREADS 1024
 #define TSL_ERROR -1
 #define TSL_SUCCESS 0
@@ -149,8 +159,8 @@ printf("inside3");
     // This is highly platform and implementation-specific.
     // The following lines are illustrative and might require adjustment for your specific environment
     // or might not work without inline assembly or other non-standard techniques.
-    // tcb->context.uc_mcontext.gregs[REG_RIP] = (greg_t)tsf; // Set instruction pointer to start function
-    // tcb->context.uc_mcontext.gregs[REG_RDI] = (greg_t)targ; // Set first argument to the start function
+     tcb->context.uc_mcontext.gregs[REG_EIP] = (greg_t)tsf; // Set instruction pointer to start function
+     tcb->context.uc_mcontext.gregs[REG_EDI] = (greg_t)targ; // Set first argument to the start function
 
     // The scheduler is responsible for setting the thread's initial state and tid
     scheduler_add_thread(tcb);
@@ -168,19 +178,28 @@ int tsl_yield(int tid) {
        printf(" CURRENT:%d\n", scheduler.currentThreadIndex);
     // Yielding to any thread if tid is -1
     if (tid == -1) {
+        printf(" 1:%d\n", scheduler.currentThreadIndex);
         // Save the current context and let the scheduler decide the next thread
         if (scheduler.currentThreadIndex >= 0) {
+            printf(" 2:%d\n", scheduler.currentThreadIndex);
             if (getcontext(&scheduler.threads[scheduler.currentThreadIndex]->context) == 0) {
+                printf(" 3:%d\n", scheduler.currentThreadIndex);
                 int nextThread = scheduler_next_thread();
+                printf(" 4:%d\n", scheduler.currentThreadIndex);
                 if (nextThread != -1) {
+                    printf(" 5:%d\n", scheduler.currentThreadIndex);
                      
 
 	
 
-                    scheduler.threads[scheduler.currentThreadIndex]->state = READY; // Mark the current thread as ready 
+                    scheduler.threads[scheduler.currentThreadIndex]->state = READY; 
+                    printf(" 6:%d\n", scheduler.currentThreadIndex);// Mark the current thread as ready 
                     scheduler.currentThreadIndex = nextThread;
+                    printf(" 7:%d\n", scheduler.currentThreadIndex);
                     scheduler.threads[nextThread]->state = RUNNING;
+                    printf(" 8:%d\n", scheduler.currentThreadIndex);
                     setcontext(&scheduler.threads[nextThread]->context);
+                    printf(" 9:%d\n", scheduler.currentThreadIndex);
                     printf("entered\n");
                 }
                 printf("entered1\n");
@@ -272,7 +291,7 @@ int tsl_join(int tid) {
 
 
 
-void tsl_exit() {
+int tsl_exit() {
     if (scheduler.currentThreadIndex < 0 || scheduler.currentThreadIndex >= TSL_MAX_THREADS) {
         return; // No current thread or out of bounds, should not happen in well-behaved code
     }
@@ -303,6 +322,8 @@ void tsl_exit() {
             exit(0);
         }
     }
+    return(0);
+    
 }
 
 
