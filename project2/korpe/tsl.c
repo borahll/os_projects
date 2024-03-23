@@ -38,7 +38,7 @@ typedef struct Scheduler {
 } Scheduler;
 
 //ThreadControlBlock threads[TSL_MAX_THREADS];
-int currentThread = -1; // TID of currently running thread
+int currentThread = 2; // TID of currently running thread
 int nextTid = 0; // Next TID to be assigned
 bool library_initialized = false; // Flag to ensure library is initialized
 
@@ -175,9 +175,9 @@ int tsl_yield(int tid) {
         fprintf(stderr, "Error: Library not initialized.\n");
         return TSL_ERROR;
     }
-       printf(" CURRENT:%d\n", scheduler.currentThreadIndex);
+       printf(" CURRENT:%d\n", tid);
     // Yielding to any thread if tid is -1
-    if (tid == -1) {
+    if (tid == TSL_ANY) {
         printf(" 1:%d\n", scheduler.currentThreadIndex);
         // Save the current context and let the scheduler decide the next thread
         if (scheduler.currentThreadIndex >= 0) {
@@ -191,7 +191,7 @@ int tsl_yield(int tid) {
                      
 
 	
-
+                    
                     scheduler.threads[scheduler.currentThreadIndex]->state = READY; 
                     printf(" 6:%d\n", scheduler.currentThreadIndex);// Mark the current thread as ready 
                     scheduler.currentThreadIndex = nextThread;
@@ -211,7 +211,7 @@ int tsl_yield(int tid) {
     }
 
     // Specific thread yielding logic
-    if (tid >= 0 && tid < TSL_MAX_THREADS) {
+    if (tid > 0 && tid < TSL_MAX_THREADS) {
         if (!scheduler.threads[tid] || scheduler.threads[tid]->state != READY) {
             // The specified thread is not in a READY state or does not exist
             fprintf(stderr, "Error: Thread %d is not ready or does not exist.\n", tid);
@@ -235,7 +235,7 @@ int tsl_yield(int tid) {
     }
 
     return TSL_SUCCESS;
-}
+} 
 
 
 
@@ -273,7 +273,7 @@ int tsl_join(int tid) {
     while (target_tcb->state != TERMINATED) {
         
         //printf("here \n");
-        tsl_yield(-1); // Yield to any available thread
+        tsl_yield(TSL_ANY); // Yield to any available thread
         //printf("here1 \n");
 
     }
@@ -323,7 +323,7 @@ int tsl_exit() {
         }
     }
     return(0);
-    
+
 }
 
 
@@ -337,6 +337,6 @@ int tsl_cancel(int tid) {
     return 0; // Success
 }
 int tsl_gettid() {
-    return currentThread;
+    return scheduler.currentThreadIndex;
 }
     
