@@ -38,7 +38,7 @@ typedef struct Scheduler {
 } Scheduler;
 
 //ThreadControlBlock threads[TSL_MAX_THREADS];
-int currentThread = 2; // TID of currently running thread
+int currentThread = -1; // TID of currently running thread
 int nextTid = 0; // Next TID to be assigned
 bool library_initialized = false; // Flag to ensure library is initialized
 
@@ -47,13 +47,24 @@ bool library_initialized = false; // Flag to ensure library is initialized
 Scheduler scheduler;
 
 
-void scheduler_init(SchedulingAlgorithm alg) {
-    scheduler.algorithm = alg;
-    scheduler.currentThreadIndex = -1;
-    scheduler.threadCount = 0;
-    for(int i = 0; i < TSL_MAX_THREADS; i++) {
-        scheduler.threads[i] = NULL;
-    }
+void scheduler_init(){//(SchedulingAlgorithm alg) {
+    // scheduler.algorithm = alg;
+    // scheduler.currentThreadIndex = -1;
+    // scheduler.threadCount = 1;
+    // for(int i = 0; i < TSL_MAX_THREADS; i++) {
+    //     scheduler.threads[i] = NULL;
+    // }
+    ThreadControlBlock* tcb;
+                // Print the corresponding string based on the enum value
+                
+                    tcb = scheduler.threads[9];
+                    printf("Thread ID: %d\n", tcb->tid);
+                printf("Is Active: %s\n", tcb->isActive ? "true" : "false");
+                
+                const char *state_names[] = { "READY", "RUNNING", "TERMINATED" };
+                printf("State: %s\n", state_names[tcb->state]);
+
+                printf("Stack Pointer: %p\n", tcb->stack);
 }
 
 void scheduler_add_thread(ThreadControlBlock* tcb) {
@@ -69,11 +80,20 @@ void scheduler_add_thread(ThreadControlBlock* tcb) {
 }
 
 int scheduler_next_thread() {
+     const char *algorithm_names[] = { "FIFO", "RR" };
+
+    // Declare a variable of type SchedulingAlgorithm
+    SchedulingAlgorithm algorithm = FIFO; // For example, FIFO is set here
+
+    // Print the corresponding string based on the enum value
+    //printf("Selected Scheduling Algorithm: %s\n", algorithm_names[scheduler.algorithm]);
     int nextThread = -1;
     switch (scheduler.algorithm) {
         case FIFO:
+        //printf("TEST: \n");
             for (int i = 0; i < TSL_MAX_THREADS; i++) {
                 if (scheduler.threads[i] != NULL && scheduler.threads[i]->state == READY) {
+                   
                     nextThread = i;
                     break;
                 }
@@ -82,8 +102,29 @@ int scheduler_next_thread() {
         case RR:
             for (int i = scheduler.currentThreadIndex + 1; i < scheduler.currentThreadIndex + 1 + TSL_MAX_THREADS; i++) {
                 int idx = i % TSL_MAX_THREADS;
+                const char *state_names[] = { "READY", "RUNNING", "TERMINATED" };
+
+                // Declare a variable of type ThreadState
+                //ThreadState state = READY; // For example, READY is set here
+                ThreadControlBlock* tcb;
+                // Print the corresponding string based on the enum value
+                if (scheduler.threads[idx] != NULL){
+                    tcb = scheduler.threads[idx];
+                    printf("Thread ID: %d\n", tcb->tid);
+                printf("Is Active: %s\n", tcb->isActive ? "true" : "false");
+                
+                const char *state_names[] = { "READY", "RUNNING", "TERMINATED" };
+                printf("State: %s\n", state_names[tcb->state]);
+
+                printf("Stack Pointer: %p\n", tcb->stack);
+
+                }
+                
+                
                 if (scheduler.threads[idx] != NULL && scheduler.threads[idx]->state == READY) {
+                    
                     nextThread = idx;
+                    printf("TEST2: %d\n", nextThread);
                     break;
                 }
             }
@@ -98,12 +139,17 @@ int tsl_init(int salg) {
     if (library_initialized) return TSL_ERROR; // Ensure this function is only called once
 
     library_initialized = true;
-
+    scheduler.algorithm = RR;
+    scheduler.currentThreadIndex = 0;
+    scheduler.threadCount = 1;
+    for(int i = 0; i < TSL_MAX_THREADS; i++) {
+        scheduler.threads[i] = NULL;
+    }
     // Initialize the scheduler with the specified algorithm
-    scheduler.algorithm = (salg == 0) ? FIFO : RR; // Assuming 0 for FIFO, others for RR
+    /*scheduler.algorithm = (salg == 0) ? FIFO : RR; // Assuming 0 for FIFO, others for RR
     scheduler.currentThreadIndex = 0; // Set the main thread as the current thread
-    scheduler.threadCount = 1; // Including the main thread
-
+    scheduler.threadCount = 1; // Including the main thread*/
+    
     // Initialize the TCB for the main thread
     ThreadControlBlock *main_tcb = &scheduler.threads[0];
     main_tcb->isActive = true;
@@ -117,6 +163,7 @@ int tsl_init(int salg) {
         fprintf(stderr, "Failed to get context for the main thread.\n");
         exit(TSL_ERROR);
     }
+    scheduler_init();
 
     // Further initialization based on `salg` if needed
     
