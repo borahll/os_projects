@@ -1,15 +1,13 @@
-#include <assert.h>
 #include <stdio.h>
-#include <unistd.h>
 #include <stdlib.h>
+#include <ucontext.h>
+#include <unistd.h>
 #include "tsl.h"
 
-// this is a sample application that is using tsl library to 
-// create and work with threads. 
-
-#define MAXCOUNT 500
+#define MAXCOUNT 1000
 #define YIELDPERIOD 100
 
+// Thread start function 1
 void *foo(void *v)
 {
 	int count = 1;
@@ -28,35 +26,22 @@ void *foo(void *v)
         if (count == MAXCOUNT)
                 break;
 	}
-	tsl_exit();
+	return (NULL); 
 }
 
 
-int 
-main(int argc, char **argv)
-{
+int main() {
     int *tids;
-    int i;
-    int numthreads = 0;
-
-    if (argc != 2) {
-        printf ("usage: ./app numofthreads\n");
-        exit(1); 
-    }
-    
-    numthreads = atoi (argv[1]);
-
+    int numthreads = 3;
     tids = (int *) malloc (numthreads * sizeof(int));
+    tids[0] = tsl_init (ALG_FCFS);
 
-	tids[0] = tsl_init (ALG_RR);
-    // at tid[0] we have the id of the main thread
-    
-    for (i = 1; i < numthreads; ++i) {
+    for (int i = 1; i < numthreads; ++i) {
 		tids[i] = tsl_create_thread ((void *)&foo, NULL);
 		printf ("thead %d created\n", (int) tids[i]);
 	}
 
-    for (i = 1; i < numthreads; ++i) {
+    for (int i = 1; i < numthreads; ++i) {
         printf ("main: waiting for thead %d\n", (int) tids[i]);
         tsl_join (tids[i]);
         printf ("main: thead %d finished\n", (int) tids[i]);
