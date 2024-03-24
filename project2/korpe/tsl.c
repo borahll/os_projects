@@ -54,17 +54,17 @@ void scheduler_init(){//(SchedulingAlgorithm alg) {
     // for(int i = 0; i < TSL_MAX_THREADS; i++) {
     //     scheduler.threads[i] = NULL;
     // }
-    ThreadControlBlock* tcb;
-                // Print the corresponding string based on the enum value
+    // ThreadControlBlock* tcb;
+    //             // Print the corresponding string based on the enum value
                 
-                    tcb = scheduler.threads[9];
-                    printf("Thread ID: %d\n", tcb->tid);
-                printf("Is Active: %s\n", tcb->isActive ? "true" : "false");
+    //                 tcb = scheduler.threads[9];
+    //                 printf("Thread ID: %d\n", tcb->tid);
+    //             printf("Is Active: %s\n", tcb->isActive ? "true" : "false");
                 
-                const char *state_names[] = { "READY", "RUNNING", "TERMINATED" };
-                printf("State: %s\n", state_names[tcb->state]);
+    //             const char *state_names[] = { "READY", "RUNNING", "TERMINATED" };
+    //             printf("State: %s\n", state_names[tcb->state]);
 
-                printf("Stack Pointer: %p\n", tcb->stack);
+    //             printf("Stack Pointer: %p\n", tcb->stack);
 }
 
 void scheduler_add_thread(ThreadControlBlock* tcb) {
@@ -102,12 +102,14 @@ int scheduler_next_thread() {
         case RR:
             for (int i = scheduler.currentThreadIndex + 1; i < scheduler.currentThreadIndex + 1 + TSL_MAX_THREADS; i++) {
                 int idx = i % TSL_MAX_THREADS;
+                //printf("INDEX : %d" ,idx);
+                //i++;
                 const char *state_names[] = { "READY", "RUNNING", "TERMINATED" };
 
                 // Declare a variable of type ThreadState
                 //ThreadState state = READY; // For example, READY is set here
                 ThreadControlBlock* tcb;
-                // Print the corresponding string based on the enum value
+                //Print the corresponding string based on the enum value
                 if (scheduler.threads[idx] != NULL){
                     tcb = scheduler.threads[idx];
                     printf("Thread ID: %d\n", tcb->tid);
@@ -121,7 +123,7 @@ int scheduler_next_thread() {
                 }
                 
                 
-                if (scheduler.threads[idx] != NULL && scheduler.threads[idx]->state == READY) {
+                if (scheduler.threads[idx] != NULL && scheduler.threads[idx]->state == READY  && idx ) {
                     
                     nextThread = idx;
                     printf("TEST2: %d\n", nextThread);
@@ -139,33 +141,39 @@ int tsl_init(int salg) {
     if (library_initialized) return TSL_ERROR; // Ensure this function is only called once
 
     library_initialized = true;
-    scheduler.algorithm = RR;
+    scheduler.algorithm = RR; // Initially set to RR for example
     scheduler.currentThreadIndex = 0;
     scheduler.threadCount = 1;
     for(int i = 0; i < TSL_MAX_THREADS; i++) {
         scheduler.threads[i] = NULL;
     }
-    // Initialize the scheduler with the specified algorithm
-    /*scheduler.algorithm = (salg == 0) ? FIFO : RR; // Assuming 0 for FIFO, others for RR
-    scheduler.currentThreadIndex = 0; // Set the main thread as the current thread
-    scheduler.threadCount = 1; // Including the main thread*/
-    scheduler_init(RR);
 
-    // Initialize the TCB for the main thread
-    ThreadControlBlock *main_tcb = scheduler.threads[0];
+    // Allocate memory for the main thread's TCB
+    ThreadControlBlock *main_tcb = malloc(sizeof(ThreadControlBlock));
+    if (main_tcb == NULL) {
+        // Handle memory allocation failure
+        fprintf(stderr, "Failed to allocate memory for the main thread TCB.\n");
+        exit(TSL_ERROR); // Or handle more gracefully
+    }
+
     main_tcb->isActive = true;
     main_tcb->tid = 0; // Assigning 0 as the TID for the main thread
     main_tcb->state = RUNNING; // Main thread is already running
-    main_tcb->stack = NULL; // Main thread's stack is managed by the OS, not by our library
+    main_tcb->stack = NULL; // Main thread's stack is managed by the OS
+    scheduler.threads[0] = main_tcb;
 
     // Use getcontext() to capture the current context of the main thread
     if (getcontext(&main_tcb->context) == -1) {
         // Handle error
         fprintf(stderr, "Failed to get context for the main thread.\n");
+        free(main_tcb); // Clean up allocated memory before exiting
         exit(TSL_ERROR);
     }
 
+    scheduler_init(); // Assuming this is a function that initializes your scheduler further
+
     // Further initialization based on `salg` if needed
+    // Example: setting scheduler.algorithm based on salg parameter
     
     return TSL_SUCCESS;
 }
@@ -225,29 +233,29 @@ int tsl_yield(int tid) {
        printf(" CURRENT:%d\n", tid);
     // Yielding to any thread if tid is -1
     if (tid == TSL_ANY) {
-        printf(" 1:%d\n", scheduler.currentThreadIndex);
+        //printf(" 1:%d\n", scheduler.currentThreadIndex);
         // Save the current context and let the scheduler decide the next thread
         if (scheduler.currentThreadIndex >= 0) {
-            printf(" 2:%d\n", scheduler.currentThreadIndex);
+           // printf(" 2:%d\n", scheduler.currentThreadIndex);
             if (getcontext(&scheduler.threads[scheduler.currentThreadIndex]->context) == 0) {
-                printf(" 3:%d\n", scheduler.currentThreadIndex);
+               // printf(" 3:%d\n", scheduler.currentThreadIndex);
                 int nextThread = scheduler_next_thread();
-                printf(" 4:%d\n", scheduler.currentThreadIndex);
+                //printf(" 4:%d\n", scheduler.currentThreadIndex);
                 if (nextThread != -1) {
-                    printf(" 5:%d\n", scheduler.currentThreadIndex);
+                  //  printf(" 5:%d\n", scheduler.currentThreadIndex);
                      
 
 	
                     
                     scheduler.threads[scheduler.currentThreadIndex]->state = READY; 
-                    printf(" 6:%d\n", scheduler.currentThreadIndex);// Mark the current thread as ready 
+                    //printf(" 6:%d\n", scheduler.currentThreadIndex);// Mark the current thread as ready 
                     scheduler.currentThreadIndex = nextThread;
-                    printf(" 7:%d\n", scheduler.currentThreadIndex);
+                    //printf(" 7:%d\n", scheduler.currentThreadIndex);
                     scheduler.threads[nextThread]->state = RUNNING;
-                    printf(" 8:%d\n", scheduler.currentThreadIndex);
+                    //printf(" 8:%d\n", scheduler.currentThreadIndex);
                     setcontext(&scheduler.threads[nextThread]->context);
-                    printf(" 9:%d\n", scheduler.currentThreadIndex);
-                    printf("entered\n");
+                    //printf(" 9:%d\n", scheduler.currentThreadIndex);
+                    printf("isnide\n");
                 }
                 printf("entered1\n");
                 // If no next thread is found, it's a no-op or you might want to handle this case specifically.
