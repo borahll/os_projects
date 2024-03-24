@@ -1,6 +1,6 @@
 CC := gcc
 CFLAGS := -g -Wall
-TARGETS := libtsl.a app
+TARGETS := libtsl.a main
 
 all: $(TARGETS)
 
