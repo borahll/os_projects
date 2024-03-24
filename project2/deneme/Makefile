@@ -18,3 +18,4 @@ main: main.c libtsl.a
 
 clean:
 	rm -rf core *.o $(TARGETS)
+

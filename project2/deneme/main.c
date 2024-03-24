@@ -4,51 +4,52 @@
 #include <unistd.h>
 #include "tsl.h"
 
+#define MAXCOUNT 1000
+#define YIELDPERIOD 100
 
 // Thread start function 1
-void thread_function1(void *arg) {
-    for (int i = 0; i < 5; i++) {
-        printf("Thread 1 is running\n");
-        sleep(1); // Simulate some work
-    }
-    tsl_exit(); // Ensure to call tsl_exit to clean up and terminate the thread properly
+void *foo(void *v)
+{
+	int count = 1;
+    int mytid;
+    
+    mytid = tsl_gettid();
+    printf ("thread %d started running (first time);  at the start function\n", mytid);
+
+	//while (count < MAXCOUNT) {
+    while (1) {
+        printf ("thread %d is running (count=%d)\n", mytid, count);
+		if (count % YIELDPERIOD == 0) {
+			tsl_yield (TSL_ANY);
+		}
+        count++;
+        if (count == MAXCOUNT)
+                break;
+	}
+	return (NULL); 
 }
 
-// Thread start function 2
-void thread_function2(void *arg) {
-    for (int i = 0; i < 5; i++) {
-        printf("Thread 2 is running\n");
-        sleep(1); // Simulate some work
-    }
-    tsl_exit(); // Ensure to call tsl_exit to clean up and terminate the thread properly
-}
+
 int main() {
-    // Initialize the Thread Support Library with a scheduling algorithm of your choice
-    scheduler_init(RR); // Initialize the scheduler with Round Robin for example
+    int *tids;
+    int numthreads = 3;
+    tids = (int *) malloc (numthreads * sizeof(int));
+    tids[0] = tsl_init (1);
 
-    // Create two threads
-    if (tsl_init(FIFO) != TSL_SUCCESS) { // Ensure the scheduler algorithm and tsl_init match
-        fprintf(stderr, "Failed to initialize the threading library.\n");
-        return EXIT_FAILURE;
+    for (int i = 1; i < numthreads; ++i) {
+		tids[i] = tsl_create_thread ((void *)&foo, NULL);
+		printf ("thead %d created\n", (int) tids[i]);
+	}
+
+    for (int i = 1; i < numthreads; ++i) {
+        printf ("main: waiting for thead %d\n", (int) tids[i]);
+        tsl_join (tids[i]);
+        printf ("main: thead %d finished\n", (int) tids[i]);
+
     }
-    int tid1 = tsl_create_thread(thread_function1, NULL);
-    if (tid1 == TSL_ERROR) {
-        printf("Failed to create thread 1\n");
-        return 1;
-    }
+    
+    printf ("main thread calling tlib_exit\n");
+    tsl_exit();
 
-    int tid2 = tsl_create_thread(thread_function2, NULL);
-    if (tid2 == TSL_ERROR) {
-        printf("Failed to create thread 2\n");
-        return 1;
-    }
-
-    printf("Main: Created threads %d and %d\n", tid1, tid2);
-
-    // Now, let's wait for the threads to finish
-    tsl_join(tid2);
-
-    printf("Main: Threads have completed\n");
-
-    return 0;
+	return 0;
 }
