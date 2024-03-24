@@ -149,9 +149,10 @@ int tsl_init(int salg) {
     /*scheduler.algorithm = (salg == 0) ? FIFO : RR; // Assuming 0 for FIFO, others for RR
     scheduler.currentThreadIndex = 0; // Set the main thread as the current thread
     scheduler.threadCount = 1; // Including the main thread*/
-    
+    scheduler_init(RR);
+
     // Initialize the TCB for the main thread
-    ThreadControlBlock *main_tcb = &scheduler.threads[0];
+    ThreadControlBlock *main_tcb = scheduler.threads[0];
     main_tcb->isActive = true;
     main_tcb->tid = 0; // Assigning 0 as the TID for the main thread
     main_tcb->state = RUNNING; // Main thread is already running
@@ -163,7 +164,6 @@ int tsl_init(int salg) {
         fprintf(stderr, "Failed to get context for the main thread.\n");
         exit(TSL_ERROR);
     }
-    scheduler_init();
 
     // Further initialization based on `salg` if needed
     
