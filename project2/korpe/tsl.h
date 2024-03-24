@@ -12,7 +12,7 @@
 
 #define ALG_FCFS 1
 #define ALG_RANDOM 2
-#define ALG_MYALGORITHM 3
+#define ALG_RR 3
 
 #define TID_MAIN 1 // tid of the main tread. this id is reserved for main thread.
 

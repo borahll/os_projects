@@ -18,7 +18,7 @@
 #define TSL_SUCCESS 0
 #define TSL_STACK_SIZE (1024*64)
 
-typedef enum { FIFO, RR} SchedulingAlgorithm;
+typedef enum { FIFO = 1, RANDOM = 2, RR = 3} SchedulingAlgorithm;
 typedef enum { READY, RUNNING, TERMINATED } ThreadState;
 
 typedef struct ThreadControlBlock {
@@ -83,7 +83,7 @@ int scheduler_next_thread() {
      const char *algorithm_names[] = { "FIFO", "RR" };
 
     // Declare a variable of type SchedulingAlgorithm
-    SchedulingAlgorithm algorithm = FIFO; // For example, FIFO is set here
+    SchedulingAlgorithm algorithm = scheduler.algorithm; // For example, FIFO is set here
 
     // Print the corresponding string based on the enum value
     //printf("Selected Scheduling Algorithm: %s\n", algorithm_names[scheduler.algorithm]);
@@ -141,7 +141,7 @@ int tsl_init(int salg) {
     if (library_initialized) return TSL_ERROR; // Ensure this function is only called once
 
     library_initialized = true;
-    scheduler.algorithm = RR; // Initially set to RR for example
+    scheduler.algorithm = salg; // Initially set to RR for example
     scheduler.currentThreadIndex = 0;
     scheduler.threadCount = 1;
     for(int i = 0; i < TSL_MAX_THREADS; i++) {
