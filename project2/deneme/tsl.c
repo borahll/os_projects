@@ -43,7 +43,6 @@ int tsl_init(int salg) {
         exit(TSL_ERROR);
     }
 
-    // Further initialization based on `salg` if needed
     return TSL_SUCCESS;
 }
 
@@ -338,6 +337,7 @@ int tsl_cancel(int tid) {
 int tsl_gettid() {
     return scheduler.currentThreadIndex;
 }
+    
     
 
 
