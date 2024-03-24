@@ -348,7 +348,7 @@ int tsl_join(int tid) {
 
 int tsl_exit() {
     if (scheduler.currentThreadIndex < 0 || scheduler.currentThreadIndex >= TSL_MAX_THREADS) {
-        return; // No current thread or out of bounds, should not happen in well-behaved code
+        return -1;
     }
 
     ThreadControlBlock* currentTcb = scheduler.threads[scheduler.currentThreadIndex];

@@ -7,7 +7,7 @@
 // this is a sample application that is using tsl library to 
 // create and work with threads. 
 
-#define MAXCOUNT 1000
+#define MAXCOUNT 500
 #define YIELDPERIOD 100
 
 void *foo(void *v)
@@ -28,7 +28,7 @@ void *foo(void *v)
         if (count == MAXCOUNT)
                 break;
 	}
-	return (NULL); 
+	tsl_exit();
 }
 
 
