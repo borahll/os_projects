@@ -1,31 +1,21 @@
-
-CC	:= gcc
+CC := gcc
 CFLAGS := -g -Wall
-
-TARGETS :=  libtsl.a  app get
+TARGETS := libtsl.a main
 
 all: $(TARGETS)
 
-TSL_SRC :=  tsl.c
+TSL_SRC := tsl.c
 TSL_OBJS := $(TSL_SRC:.c=.o)
 
 libtsl.a: $(TSL_OBJS)
-	ar rcs $@ $(TSL_OBJS)
+	ar rcs $@ $^
 
-TSL_LIB :=  -L . -l tsl
+main: main.c libtsl.a
+	$(CC) $(CFLAGS) -o $@ $< -L. -ltsl
 
-tsl.o: tsl.c tsl.h
-	gcc -c $(CFLAGS) -m32 -o $@ tsl.c
-
-app.o: app.c  tsl.h
-	gcc -c $(CFLAGS) -m32  -o $@ app.c
-
-app: app.o libtsl.a
-	gcc $(CFLAGS) -m32  -o $@ app.o  $(TSL_LIB)
-
-get: get.c
-	gcc $(CFLAGS) -m32 -o $@ $<
+%.o: %.c
+	$(CC) $(CFLAGS) -c -o $@ $<
 
 clean:
-	rm -rf core  *.o $(TARGETS)
+	rm -rf core *.o $(TARGETS)
 	
