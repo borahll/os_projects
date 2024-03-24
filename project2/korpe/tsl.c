@@ -18,7 +18,7 @@
 #define TSL_SUCCESS 0
 #define TSL_STACK_SIZE (1024*64)
 
-typedef enum { FIFO = 1, RANDOM = 2, RR = 3} SchedulingAlgorithm;
+typedef enum { FCFS = 1, RANDOM = 2, RR = 3} SchedulingAlgorithm;
 typedef enum { READY, RUNNING, TERMINATED } ThreadState;
 
 typedef struct ThreadControlBlock {
@@ -81,7 +81,7 @@ void scheduler_add_thread(ThreadControlBlock* tcb) {
 }
 
 int scheduler_next_thread() {
-     const char *algorithm_names[] = { "FIFO", "RR" };
+//const char *algorithm_names[] = { "FIFO", "RR" };
 
     // Declare a variable of type SchedulingAlgorithm
     SchedulingAlgorithm algorithm = scheduler.algorithm; // For example, FIFO is set here
@@ -89,11 +89,11 @@ int scheduler_next_thread() {
     //printf("Selected Scheduling Algorithm: %s\n", algorithm_names[scheduler.algorithm]);
     int nextThread = -1;
     switch (scheduler.algorithm) {
-        case FIFO:
+        case FCFS:
         //printf("TEST: \n");
-            for (int i = 0; i < TSL_MAX_THREADS; i++) {
-                if (scheduler.threads[i] != NULL && scheduler.threads[i]->state == READY) {
-                   
+            for (int i = 1  ; i < TSL_MAX_THREADS; i++) {
+                if (scheduler.threads[i] != NULL && scheduler.threads[i]->state != TERMINATED) {
+                    printf("thread id %d, state:%d\n", i, scheduler.threads[i]->state);
                     nextThread = i;
                     break;
                 }
