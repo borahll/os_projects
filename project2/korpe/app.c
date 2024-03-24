@@ -48,7 +48,7 @@ main(int argc, char **argv)
 
     tids = (int *) malloc (numthreads * sizeof(int));
 
-	tids[0] = tsl_init (ALG_FCFS);
+	tids[0] = tsl_init (ALG_RR);
     // at tid[0] we have the id of the main thread
     
     for (i = 1; i < numthreads; ++i) {
