@@ -27,8 +27,9 @@ typedef struct ThreadControlBlock {
     bool isActive;  // Indicates if the thread slot is used
     ThreadState state;
     void* stack;
-    //int estimatedRuntime; // For SJF and SRTF
+    bool resumed;   // Indicates if the thread is resuming from a yield
 } ThreadControlBlock;
+
 
 typedef struct Scheduler {
     SchedulingAlgorithm algorithm;
@@ -84,7 +85,6 @@ int scheduler_next_thread() {
 
     // Declare a variable of type SchedulingAlgorithm
     SchedulingAlgorithm algorithm = scheduler.algorithm; // For example, FIFO is set here
-
     // Print the corresponding string based on the enum value
     //printf("Selected Scheduling Algorithm: %s\n", algorithm_names[scheduler.algorithm]);
     int nextThread = -1;
@@ -126,7 +126,7 @@ int scheduler_next_thread() {
                 if (scheduler.threads[idx] != NULL && scheduler.threads[idx]->state == READY  && idx ) {
                     
                     nextThread = idx;
-                    printf("TEST2: %d\n", nextThread);
+                    
                     break;
                 }
             }
@@ -223,74 +223,46 @@ printf("inside3");
 
     return tcb->tid; // The scheduler_add_thread function now assigns and returns the tid
 }
-
-
 int tsl_yield(int tid) {
     if (!library_initialized) {
         fprintf(stderr, "Error: Library not initialized.\n");
         return TSL_ERROR;
     }
-       printf(" CURRENT:%d\n", tid);
-    // Yielding to any thread if tid is -1
-    if (tid == TSL_ANY) {
-        //printf(" 1:%d\n", scheduler.currentThreadIndex);
-        // Save the current context and let the scheduler decide the next thread
-        if (scheduler.currentThreadIndex >= 0) {
-           // printf(" 2:%d\n", scheduler.currentThreadIndex);
-            if (getcontext(&scheduler.threads[scheduler.currentThreadIndex]->context) == 0) {
-               // printf(" 3:%d\n", scheduler.currentThreadIndex);
-                int nextThread = scheduler_next_thread();
-                //printf(" 4:%d\n", scheduler.currentThreadIndex);
-                if (nextThread != -1) {
-                  //  printf(" 5:%d\n", scheduler.currentThreadIndex);
-                     
 
-	
-                    
-                    scheduler.threads[scheduler.currentThreadIndex]->state = READY; 
-                    //printf(" 6:%d\n", scheduler.currentThreadIndex);// Mark the current thread as ready 
-                    scheduler.currentThreadIndex = nextThread;
-                    //printf(" 7:%d\n", scheduler.currentThreadIndex);
-                    scheduler.threads[nextThread]->state = RUNNING;
-                    //printf(" 8:%d\n", scheduler.currentThreadIndex);
-                    setcontext(&scheduler.threads[nextThread]->context);
-                    //printf(" 9:%d\n", scheduler.currentThreadIndex);
-                    printf("isnide\n");
-                }
-                printf("entered1\n");
-                // If no next thread is found, it's a no-op or you might want to handle this case specifically.
+    // Get the current thread's TCB
+    ThreadControlBlock* current_tcb = scheduler.threads[scheduler.currentThreadIndex];
+
+    // Only attempt to yield if the thread has not been marked as resumed
+    if (!current_tcb->resumed) {
+        // Capture the current context for later resumption
+        if (getcontext(&current_tcb->context) == 0) {
+            // Mark this thread as having saved its context to prevent immediate re-yielding
+            current_tcb->resumed = true;
+
+            // Determine the next thread to switch to
+            int nextThread = scheduler_next_thread();
+            if (nextThread != -1 && nextThread != scheduler.currentThreadIndex) {
+                // Prepare the current thread for switching
+                current_tcb->state = READY;
+
+                // Switch to the next thread
+                scheduler.currentThreadIndex = nextThread;
+                scheduler.threads[nextThread]->state = RUNNING;
+                scheduler.threads[nextThread]->resumed = false; // Ensure the next thread starts fresh
+
+                setcontext(&scheduler.threads[nextThread]->context);
+                // Execution will continue from here when this thread is resumed
             }
-
-        }
-        return TSL_SUCCESS;
-    }
-
-    // Specific thread yielding logic
-    if (tid > 0 && tid < TSL_MAX_THREADS) {
-        if (!scheduler.threads[tid] || scheduler.threads[tid]->state != READY) {
-            // The specified thread is not in a READY state or does not exist
-            fprintf(stderr, "Error: Thread %d is not ready or does not exist.\n", tid);
-            return TSL_ERROR;
-        }
-
-        // Save the current context if we are currently running a thread
-        printf("here1\n");
-        if (scheduler.currentThreadIndex >= 0 && getcontext(&scheduler.threads[scheduler.currentThreadIndex]->context) == 0) {
-            // Switch to the specified thread directly
-            printf("the id: %d\n", tid);
-            scheduler.currentThreadIndex = tid;
-            scheduler.threads[tid]->state = RUNNING;
-            setcontext(&scheduler.threads[tid]->context);
-            printf("here2\n");
-
         }
     } else {
-        fprintf(stderr, "Error: Invalid thread ID (%d) for yield.\n", tid);
-        return TSL_ERROR;
+        // Clear the resumed flag to indicate that this thread is now actively running
+        current_tcb->resumed = false;
     }
 
     return TSL_SUCCESS;
-} 
+}
+
+
 
 
 
