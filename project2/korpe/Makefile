@@ -10,7 +10,7 @@ TSL_OBJS := $(TSL_SRC:.c=.o)
 libtsl.a: $(TSL_OBJS)
 	ar rcs $@ $^
 
-main: main.c libtsl.a
+app: app.c libtsl.a
 	$(CC) $(CFLAGS) -o $@ $< -L. -ltsl
 
 %.o: %.c
