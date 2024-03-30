@@ -4,6 +4,7 @@
 #include <malloc.h>
 #include <assert.h>
 #include <string.h>
+#include <ctype.h>
 #include "mf.h"
 #include <sys/mman.h>
 #include <unistd.h>
