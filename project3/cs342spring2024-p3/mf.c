@@ -5,15 +5,22 @@
 #include <assert.h>
 #include <string.h>
 #include "mf.h"
+#define SEM_NAME_PREFIX "/mf_sem_"
 
-// Simplified structure for message queue metadata within shared memory
 typedef struct {
-    char mqname[MAX_MQNAMESIZE]; // Name of the message queue
-    unsigned int mqsize; // Size of the message queue in bytes
-    unsigned int start_offset; // Start offset of the queue within shared memory
-    unsigned int end_offset; // End offset of the queue within shared memory
-    // Add more fields as needed for management (e.g., reference count, message count)
+    char mqname[MAX_MQNAMESIZE];
+    char sem_name[MAX_SEM_NAME_SIZE]; // Name of the semaphore for this queue
+    unsigned int start_offset, end_offset;
+    unsigned int head, tail;
+    unsigned int capacity;
+    unsigned int size;
+    int isActive;
 } MQMetadata;
+
+typedef struct {
+    MQMetadata queues[MAX_QUEUES]; // Metadata for each queue
+    unsigned int queue_count; // Total number of active queues
+} ManagementSection;
 // Assuming a global pointer to the start of the shared memory segment
 void* shm_start = NULL;
 unsigned int shm_size = 0; // Total size of the shared memory
@@ -44,6 +51,66 @@ int parse_config(const char* filename, int* shmem_size) {
     fclose(file);
     return MF_SUCCESS;
 }
+
+// Utility function to generate a semaphore name for a queue
+void generate_semaphore_name(char* dest, const char* mqname, int index) {
+    snprintf(dest, MAX_SEM_NAME_SIZE, "%s%s_%d", SEM_NAME_PREFIX, mqname, index);
+}
+
+// Initialize semaphore for a message queue
+int initialize_semaphore_for_queue(MQMetadata* queue, int index) {
+    char sem_name[MAX_SEM_NAME_SIZE];
+    generate_semaphore_name(sem_name, queue->mqname, index);
+    strncpy(queue->sem_name, sem_name, MAX_SEM_NAME_SIZE);
+
+    sem_t* sem = sem_open(sem_name, O_CREAT | O_EXCL, 0644, 1); // Initial value is 1 for unlocked
+    if (sem == SEM_FAILED) {
+        perror("Failed to create semaphore");
+        return MF_ERROR;
+    }
+    sem_close(sem); // Close handle, semaphore is not removed
+    return MF_SUCCESS;
+}
+
+// Acquire semaphore for a message queue
+int lock_queue(MQMetadata* queue) {
+    sem_t* sem = sem_open(queue->sem_name, 0);
+    if (sem == SEM_FAILED) {
+        perror("sem_open failed");
+        return MF_ERROR;
+    }
+    if (sem_wait(sem) != 0) {
+        perror("sem_wait failed");
+        return MF_ERROR;
+    }
+    sem_close(sem);
+    return MF_SUCCESS;
+}
+
+// Release semaphore for a message queue
+int unlock_queue(MQMetadata* queue) {
+    sem_t* sem = sem_open(queue->sem_name, 0);
+    if (sem == SEM_FAILED) {
+        perror("sem_open failed");
+        return MF_ERROR;
+    }
+    if (sem_post(sem) != 0) {
+        perror("sem_post failed");
+        return MF_ERROR;
+    }
+    sem_close(sem);
+    return MF_SUCCESS;
+}
+
+// Remove semaphore for a message queue
+int remove_semaphore_for_queue(MQMetadata* queue) {
+    if (sem_unlink(queue->sem_name) != 0) {
+        perror("sem_unlink failed");
+        return MF_ERROR;
+    }
+    return MF_SUCCESS;
+}
+
 
 int mf_init() {
     int shmem_size = 0;
@@ -85,9 +152,9 @@ int mf_init() {
     // TODO Initialize synchronization primitives and other setup here
     // ...
 
-    // Don't forget to unmap and unlink the shared memory object when destroying it
-    // munmap(shm_ptr, shmem_size);
-    // shm_unlink("/mf_shared_memory");
+    // TODO Don't forget to unmap and unlink the shared memory object when destroying it
+    munmap(shm_ptr, shmem_size);
+    shm_unlink("/mf_shared_memory");
 
     return MF_SUCCESS;
 }
@@ -154,7 +221,7 @@ int mf_disconnect() {
     // that were allocated or initialized in mf_connect or during the use of the MF library.
 
     return MF_SUCCESS;
-
+}
 
 // Aligns size to the next multiple of 4 bytes
 unsigned int align_up(unsigned int size) {
