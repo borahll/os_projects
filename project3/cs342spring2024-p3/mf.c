@@ -17,6 +17,20 @@
 #define SHM_SIZE (1024 * 1024) // Example size
 #define MF_SUCCESS 0
 #define MF_ERROR -1
+#define INITIAL_CAPACITY 10
+
+typedef struct {
+    pid_t process_id;
+    // Add more fields as necessary, e.g., for tracking open queues
+} ActiveProcess;
+
+typedef struct {
+    ActiveProcess* processes; // Dynamic array of active processes
+    size_t size;              // Current number of active processes
+    size_t capacity;          // Current capacity of the array
+} ActiveProcessList;
+
+ActiveProcessList activeProcessList = {NULL, 0, 0};
 
 typedef struct {
     char mqname[MAX_MQNAMESIZE];
@@ -45,6 +59,57 @@ typedef struct {
 } SharedMemoryContext;
 SharedMemoryContext shm_context;
 
+void initActiveProcessList() {
+    activeProcessList.processes = (ActiveProcess*)malloc(INITIAL_CAPACITY * sizeof(ActiveProcess));
+    if (activeProcessList.processes == NULL) {
+        perror("Failed to allocate activeProcessList");
+        exit(EXIT_FAILURE);
+    }
+    activeProcessList.size = 0;
+    activeProcessList.capacity = INITIAL_CAPACITY;
+}
+
+void resizeActiveProcessList(size_t new_capacity) {
+    ActiveProcess* new_array = (ActiveProcess*)realloc(activeProcessList.processes, new_capacity * sizeof(ActiveProcess));
+    if (new_array == NULL) {
+        perror("Failed to reallocate activeProcessList");
+        free(activeProcessList.processes); // Clean up original array
+        exit(EXIT_FAILURE);
+    }
+    activeProcessList.processes = new_array;
+    activeProcessList.capacity = new_capacity;
+}
+
+void addActiveProcess(pid_t pid) {
+    if (activeProcessList.size == activeProcessList.capacity) {
+        // Resize the array if necessary
+        resizeActiveProcessList(activeProcessList.capacity * 2);
+    }
+    activeProcessList.processes[activeProcessList.size].process_id = pid;
+    activeProcessList.size++;
+}
+
+void removeActiveProcess(pid_t pid) {
+    for (size_t i = 0; i < activeProcessList.size; i++) {
+        if (activeProcessList.processes[i].process_id == pid) {
+            // Shift elements down to fill the gap
+            for (size_t j = i; j < activeProcessList.size - 1; j++) {
+                activeProcessList.processes[j] = activeProcessList.processes[j + 1];
+            }
+            activeProcessList.size--;
+            return;
+        }
+    }
+    printf("Process ID %d not found in active process list.\n", pid);
+}
+
+void freeActiveProcessList() {
+    free(activeProcessList.processes);
+    activeProcessList.processes = NULL;
+    activeProcessList.size = 0;
+    activeProcessList.capacity = 0;
+}
+
 int parse_config(const char* filename, int* shmem_size) {
     FILE* file = fopen(filename, "r");
     if (file == NULL) {
@@ -61,6 +126,47 @@ int parse_config(const char* filename, int* shmem_size) {
     }
     fclose(file);
     return MF_SUCCESS;
+}
+// Utility function to retrieve and remove the first message from the queue
+int retrieve_first_message(MQMetadata* mq, void* bufptr, int bufsize) {
+    if (mq->size == 0) {
+        // No messages to retrieve
+        return MF_ERROR;
+    }
+
+    // The queue's buffer starts right after the MQMetadata structure in memory
+    char* queueBuffer = ((char*)mq) + sizeof(MQMetadata);
+
+    // Read the size of the first message
+    unsigned int messageSize;
+    memcpy(&messageSize, queueBuffer + mq->head, sizeof(unsigned int));
+
+    // Check if the provided buffer is large enough
+    if (bufsize < messageSize) {
+        printf("Provided buffer is too small for the message.\n");
+        return MF_ERROR;
+    }
+
+    // Calculate the position of the message data
+    unsigned int messageDataPos = mq->head + sizeof(unsigned int);
+    if (messageDataPos >= mq->capacity) {
+        // Wrap around if necessary
+        messageDataPos -= mq->capacity;
+    }
+
+    // Copy the message to the provided buffer
+    memcpy(bufptr, queueBuffer + messageDataPos, messageSize);
+
+    // Update the head pointer and the queue size
+    unsigned int newHead = mq->head + sizeof(unsigned int) + messageSize;
+    if (newHead >= mq->capacity) {
+        // Wrap around if the new head exceeds the queue capacity
+        newHead -= mq->capacity;
+    }
+    mq->head = newHead;
+    mq->size -= (sizeof(unsigned int) + messageSize); // Update size to reflect the removal
+
+    return messageSize; // Return the size of the message retrieved
 }
 
 // HELPER Utility function to generate a semaphore name for a queue
@@ -113,6 +219,40 @@ int unlock_queue(MQMetadata* queue) {
     return MF_SUCCESS;
 }
 
+int lock_global_management() {
+    sem_t* sem = sem_open(GLOBAL_MANAGEMENT_SEM_NAME, 0);
+    if (sem == SEM_FAILED) {
+        perror("Global management sem_open failed");
+        return MF_ERROR;
+    }
+
+    if (sem_wait(sem) != 0) {
+        perror("Global management sem_wait failed");
+        sem_close(sem); // Attempt to close even in case of failure
+        return MF_ERROR;
+    }
+
+    sem_close(sem); // Close the semaphore handle
+    return MF_SUCCESS;
+}
+
+int unlock_global_management() {
+    sem_t* sem = sem_open(GLOBAL_MANAGEMENT_SEM_NAME, 0);
+    if (sem == SEM_FAILED) {
+        perror("Global management sem_open failed");
+        return MF_ERROR;
+    }
+
+    if (sem_post(sem) != 0) {
+        perror("Global management sem_post failed");
+        sem_close(sem); // Attempt to close even in case of failure
+        return MF_ERROR;
+    }
+
+    sem_close(sem); // Close the semaphore handle
+    return MF_SUCCESS;
+}
+
 // Remove semaphore for a message queue
 int remove_semaphore_for_queue(MQMetadata* queue) {
     if (sem_unlink(queue->sem_name) != 0) {
@@ -122,13 +262,19 @@ int remove_semaphore_for_queue(MQMetadata* queue) {
     return MF_SUCCESS;
 }
 
-
 // Initialize the shared memory and management section
 int mf_init() {
     int shmem_size = 0;
     if (parse_config(CONFIG_FILENAME, &shmem_size) != MF_SUCCESS) {
         return MF_ERROR;
     }
+    // Part of mf_init function
+    sem_t* globalSem = sem_open(GLOBAL_MANAGEMENT_SEM_NAME, O_CREAT | O_EXCL, 0644, 1);
+    if (globalSem == SEM_FAILED) {
+        perror("Failed to create global management semaphore");
+        return MF_ERROR;
+    }
+    sem_close(globalSem); // Close the handle; the semaphore itself remains in the system
 
     if (shmem_size < MIN_SHMEMSIZE || shmem_size > MAX_SHMEMSIZE) {
         fprintf(stderr, "Shared memory size in the config file is out of valid range\n");
@@ -136,7 +282,7 @@ int mf_init() {
     }
 
     shmem_size *= 1024; // Convert from KB to bytes
-
+    initActiveProcessList();
     int fd = shm_open("/mf_shared_memory", O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
     if (fd == -1) {
         perror("shm_open failed");
@@ -177,23 +323,29 @@ int mf_destroy() {
         return MF_ERROR;
     }
 
-    // Access the management section at the beginning of the shared memory
+    // Optionally lock the global management structure if concurrent access is possible
+    if (lock_global_management() != MF_SUCCESS) {
+        fprintf(stderr, "Failed to lock global management for destruction.\n");
+        // Decide if failure to lock should abort the destruction process
+    }
+
     ManagementSection* mgmt = (ManagementSection*)shm_start;
 
     // Iterate over all message queues to unlink their semaphores
     for (int i = 0; i < mgmt->queue_count; i++) {
         MQMetadata* queue = &mgmt->queues[i];
         if (queue->isActive) {
-            // The semaphore name is stored in each queue's metadata
             if (sem_unlink(queue->sem_name) == -1) {
                 perror("sem_unlink failed for a message queue semaphore");
-                // Continue trying to clean up other resources
             }
         }
     }
 
-    // Unmap the shared memory before unlinking it
-    if (munmap(shm_start, SHM_SIZE) == -1) { // Assume SHM_SIZE is globally defined or otherwise retrievable
+    // Ensure all dynamically allocated memory is freed, if any
+    freeActiveProcessList(); // Make sure this function properly frees all allocated memory
+
+    // Unmap the shared memory
+    if (munmap(shm_start, SHM_SIZE) == -1) {
         perror("munmap failed");
         return MF_ERROR;
     }
@@ -204,14 +356,31 @@ int mf_destroy() {
         return MF_ERROR;
     }
 
-    shm_start = NULL; // Reset the global pointer as the memory is no longer mapped
+    // Unlink the global management semaphore
+    if (sem_unlink(GLOBAL_MANAGEMENT_SEM_NAME) != 0) {
+        perror("Failed to unlink global management semaphore");
+    }
+
+    shm_start = NULL; // Reset the global pointer
+
+    // Optionally unlock the global management structure if it was locked
+    unlock_global_management();
 
     return MF_SUCCESS;
 }
 
+
 int mf_connect() {
-    // Open the shared memory object
-    int shm_fd = shm_open(SHM_NAME, O_RDWR, 0);
+    // Optionally read the shared memory details from a configuration file
+    char shm_name[MAX_SHM_NAME_SIZE]; // Placeholder for shared memory name
+    int result = read_configuration(CONFIG_FILENAME, shm_name, &shm_context.size);
+    if (result != MF_SUCCESS) {
+        printf("Failed to read configuration.\n");
+        return MF_ERROR;
+    }
+
+    // Open the shared memory object using the name from the configuration
+    int shm_fd = shm_open(shm_name, O_RDWR, 0);
     if (shm_fd == -1) {
         perror("shm_open in mf_connect failed");
         return MF_ERROR;
@@ -234,18 +403,55 @@ int mf_connect() {
         return MF_ERROR;
     }
 
+    // Lock global management before modifying shared data structures
+    if (lock_global_management() != MF_SUCCESS) {
+        munmap(shm_context.ptr, shm_context.size); // Cleanup
+        printf("Failed to lock global management.\n");
+        return MF_ERROR;
+    }
+
+    // Add the current process to the active process list
+    addActiveProcess(getpid());
+
+    // Unlock global management after updates
+    unlock_global_management();
+
     // Close the file descriptor as it's no longer needed after mmap
     close(shm_fd);
 
-    // The process is now connected to the shared memory and ready for synchronized operations on message queues.
     return MF_SUCCESS;
 }
 
 
 int mf_disconnect() {
-    // Example semaphore operation if there's a need to synchronize disconnect operations
-    // lock_global(); // Hypothetical function to lock a global semaphore if needed
-    // unlock_global(); // Hypothetical function to unlock it after certain operations
+    if (shm_context.ptr == NULL || shm_context.size == 0) {
+        printf("Shared memory not initialized or already disconnected.\n");
+        return MF_ERROR; // or MF_SUCCESS if you treat this as a non-error state
+    }
+    int pid = getpid(); // Use appropriate method to get the current process's ID
+
+    // Lock the global management structure to safely update the list of active processes
+    if (lock_global_management() != MF_SUCCESS) {
+        printf("Failed to lock global management for disconnect.\n");
+        return MF_ERROR;
+    }
+
+    // Update the list of active processes to remove the current process
+    // This step assumes there's a mechanism in place to identify and remove the current process
+    // e.g., remove_process_from_active_list(current_process_id);
+    // For demonstration, this line is commented out:
+    removeActiveProcess(pid);
+
+
+    // Perform cleanup of process-specific resources
+    // For example, closing any open message queues the process might have
+    // close_open_queues_for_process(current_process_id); // Hypothetical function
+
+    // Unlock the global management structure after updates
+    if (unlock_global_management() != MF_SUCCESS) {
+        printf("Failed to unlock global management after disconnect.\n");
+        // Continue with disconnect even if unlocking fails
+    }
 
     // Unmap the shared memory object from the process's address space
     if (munmap(shm_context.ptr, shm_context.size) == -1) {
@@ -253,11 +459,14 @@ int mf_disconnect() {
         return MF_ERROR;
     }
 
-    // Perform any cleanup of process-specific resources
-    // that were allocated or initialized in mf_connect or during the use of the MF library.
+    // Optionally reset the shm_context to prevent reuse
+    shm_context.ptr = NULL;
+    shm_context.size = 0;
 
+    printf("Process disconnected successfully.\n");
     return MF_SUCCESS;
 }
+
 
 // Aligns size to the next multiple of 4 bytes
 unsigned int align_up(unsigned int size) {
@@ -274,67 +483,110 @@ unsigned int allocate_space_in_shared_memory(unsigned int size) {
     return allocation_start;
 }
 
-// mf_create function with semaphore integration
 int mf_create(const char* mqname, int mqsize) {
-    ManagementSection* mgmt = (ManagementSection*)shm_start;
-    if (mgmt->queue_count >= MAX_QUEUES) {
-        printf("Maximum number of queues reached.\n");
+    if (shm_start == NULL) {
+        printf("Shared memory not initialized.\n");
         return MF_ERROR;
     }
 
+    if (mqname == NULL || mqsize < MIN_QUEUE_SIZE || mqsize > MAX_QUEUE_SIZE) {
+        printf("Invalid queue name or size.\n");
+        return MF_ERROR;
+    }
+
+    // Lock global management structure
+    if (lock_global_management() != MF_SUCCESS) {
+        printf("Failed to lock global management.\n");
+        return MF_ERROR;
+    }
+
+    ManagementSection* mgmt = (ManagementSection*)shm_start;
+    if (mgmt->queue_count >= MAX_QUEUES) {
+        printf("Maximum number of queues reached.\n");
+        unlock_global_management();
+        return MF_ERROR;
+    }
+
+    // Check for an existing queue with the same name
+    for (int i = 0; i < mgmt->queue_count; i++) {
+        if (strncmp(mgmt->queues[i].mqname, mqname, MAX_MQNAMESIZE) == 0 && mgmt->queues[i].isActive) {
+            printf("Queue with the name '%s' already exists.\n", mqname);
+            unlock_global_management();
+            return MF_ERROR;
+        }
+    }
+
+    // Find an available slot for the new queue
     for (int i = 0; i < MAX_QUEUES; i++) {
         if (!mgmt->queues[i].isActive) {
             strncpy(mgmt->queues[i].mqname, mqname, MAX_MQNAMESIZE - 1);
             mgmt->queues[i].mqname[MAX_MQNAMESIZE - 1] = '\0'; // Ensure null-termination
             mgmt->queues[i].isActive = 1;
-            mgmt->queues[i].capacity = mqsize; // Assume direct assignment for simplicity
+            mgmt->queues[i].capacity = mqsize;
             // Initialize semaphore for the queue
             if (initialize_semaphore_for_queue(&mgmt->queues[i], i) != MF_SUCCESS) {
-                printf("Failed to initialize semaphore for queue.\n");
-                mgmt->queues[i].isActive = 0; // Mark as inactive due to failure
+                printf("Failed to initialize semaphore for queue '%s'.\n", mqname);
+                mgmt->queues[i].isActive = 0; // Revert activation due to failure
+                unlock_global_management();
                 return MF_ERROR;
             }
             mgmt->queue_count++;
+            unlock_global_management();
             return i; // Return the index as the queue identifier
         }
     }
 
-    return MF_ERROR; // Should not reach here if queue_count is accurate
+    unlock_global_management();
+    return MF_ERROR; // No available slot found
 }
+
 int mf_remove(char *mqname) {
     if (shm_start == NULL) {
         printf("Shared memory not initialized.\n");
         return MF_ERROR;
     }
 
+    // Lock global management structure here
+    if (lock_global_management() != MF_SUCCESS) {
+        printf("Failed to lock global management for queue removal.\n");
+        return MF_ERROR;
+    }
+
     MQMetadata* directory = (MQMetadata*)shm_start;
-    for (int i = 0; i < 10; i++) { // Assuming a maximum of 10 queues for simplicity
+    for (int i = 0; i < MAX_QUEUES; i++) { // Use MAX_QUEUES instead of hardcoded value
         if (strncmp(directory[i].mqname, mqname, MAX_MQNAMESIZE) == 0) {
-            // Found the queue to remove, now lock it to ensure exclusive access
+            // Found the queue to remove
+            if (directory[i].referenceCount > 0) {
+                printf("Cannot remove queue '%s' as it is still in use.\n", mqname);
+                unlock_global_management(); // Important to unlock before returning
+                return MF_ERROR;
+            }
+
             if (lock_queue(&directory[i]) != MF_SUCCESS) {
                 printf("Failed to lock message queue '%s' for removal.\n", mqname);
-                return MF_ERROR; // Early return if we can't lock the queue safely
+                unlock_global_management(); // Unlock global management before returning
+                return MF_ERROR;
             }
 
-            // Proceed to clear the metadata to "remove" the queue
-            memset(&directory[i], 0, sizeof(MQMetadata));
+            memset(&directory[i], 0, sizeof(MQMetadata)); // Clear the queue metadata
             printf("Message queue '%s' removed successfully.\n", mqname);
 
-            // After removing the queue, unlock and remove its semaphore
-            unlock_queue(&directory[i]); // Ignore return value as we're destroying the semaphore next
+            // It's important to remove the semaphore associated with the queue
             if (remove_semaphore_for_queue(&directory[i]) != MF_SUCCESS) {
                 printf("Failed to remove semaphore for queue '%s'.\n", mqname);
-                // Consider how you want to handle semaphore removal failure. Here we just log it.
             }
 
+            unlock_queue(&directory[i]); // Proceed to unlock even if semaphore removal failed
+
+            unlock_global_management(); // Unlock global management after operation
             return MF_SUCCESS;
         }
     }
 
+    unlock_global_management(); // Ensure to unlock global management if queue not found
     printf("Message queue '%s' not found.\n", mqname);
     return MF_ERROR;
 }
-
 
 
 int mf_open(char *mqname) {
@@ -343,36 +595,44 @@ int mf_open(char *mqname) {
         return MF_ERROR;
     }
 
-    ManagementSection* mgmt = (ManagementSection*)shm_start; // Assuming the first part of shm_start is ManagementSection
-    for (int i = 0; i < mgmt->queue_count; i++) { // Loop through the directory
+    if (mqname == NULL || mqname[0] == '\0') {
+        printf("Invalid queue name.\n");
+        return MF_ERROR;
+    }
+
+    // Lock global management structure here (Assuming a function or mechanism for this)
+    lock_global_management(); // Pseudocode - Implement based on your synchronization mechanism
+
+    ManagementSection* mgmt = (ManagementSection*)shm_start;
+    for (int i = 0; i < MAX_QUEUES; i++) { // Iterate through all possible queues, not just mgmt->queue_count
         MQMetadata* queue = &mgmt->queues[i];
-        if (strncmp(queue->mqname, mqname, MAX_MQNAMESIZE) == 0) {
-            // Attempt to lock the queue for exclusive access
-            if (lock_queue(queue) != MF_SUCCESS) {
-                printf("Failed to lock message queue '%s'.\n", mqname);
-                return MF_ERROR;
-            }
+        if (strncmp(queue->mqname, mqname, MAX_MQNAMESIZE) == 0 && queue->isActive) {
+            // Found an active queue with the matching name
 
-            // Optionally perform actions that require exclusive access
-            // ...
-
-            // Unlock the queue after done
-            if (unlock_queue(queue) != MF_SUCCESS) {
-                printf("Failed to unlock message queue '%s'.\n", mqname);
-                // Even if unlocking fails, we consider the queue open, so this is not necessarily a fatal error
-            }
+            // Unlock global management structure here
+            // unlock_global_management(); // Pseudocode - Implement unlocking
 
             printf("Message queue '%s' opened successfully.\n", mqname);
             return i; // Return the index as the queue identifier
         }
     }
 
+    // Optionally, create a new queue if not found and if system design permits
+    // int newQueueID = create_new_queue(mqname);
+    // if (newQueueID != MF_ERROR) {
+    //     unlock_global_management(); // Ensure to unlock before returning
+    //     return newQueueID;
+    // }
+
+    // Unlock global management structure here if no queue is found and no new queue is created
+    unlock_global_management(); // Pseudocode - Implement unlocking
+
     printf("Message queue '%s' not found.\n", mqname);
-    return MF_ERROR; // Indicate failure if the queue is not found
+    return MF_ERROR; // Queue not found
 }
 
 
-// Function to close a message queue
+
 int mf_close(int qid) {
     if (shm_start == NULL) {
         printf("Shared memory not initialized.\n");
@@ -380,15 +640,14 @@ int mf_close(int qid) {
     }
 
     ManagementSection* mgmt = (ManagementSection*)shm_start;
-    if (qid < 0 || qid >= MAX_QUEUES) { // Use MAX_QUEUES defined globally
+    if (qid < 0 || qid >= MAX_QUEUES) {
         printf("Invalid queue identifier.\n");
         return MF_ERROR;
     }
 
     MQMetadata* queue = &mgmt->queues[qid];
-    if (!queue->isActive || queue->mqname[0] == '\0') {
-        // The queue at this index is not in use
-        printf("Queue identifier does not refer to an open queue.\n");
+    if (!queue->isActive) {
+        printf("Queue identifier does not refer to an active queue.\n");
         return MF_ERROR;
     }
 
@@ -398,28 +657,32 @@ int mf_close(int qid) {
         return MF_ERROR;
     }
 
-    // Simulate closing the queue, decrementing reference count, etc.
-    // Actual implementation would likely involve more than just printing a message
-    printf("Message queue '%s' closed successfully.\n", queue->mqname);
+    // Properly deactivate the queue and clear its metadata
+    queue->isActive = 0;
+    memset(queue->mqname, 0, MAX_MQNAMESIZE); // Clear the queue name
+    queue->head = 0;
+    queue->tail = 0;
+    queue->size = 0;
 
-    // Optionally, perform cleanup if reference count reaches 0, etc.
-    // This might include setting isActive to 0, clearing mqname, etc.
-    // For this example, just show the unlock step
-    if (unlock_queue(queue) != MF_SUCCESS) {
-        printf("Failed to unlock the queue.\n");
-        // Even if unlocking fails, proceed to attempt removal of the semaphore
+    // Remove the semaphore associated with the queue
+    if (remove_semaphore_for_queue(queue) != MF_SUCCESS) {
+        printf("Failed to remove the semaphore for queue '%s'.\n", queue->mqname);
+        // Attempt to unlock the queue before returning with error
+        unlock_queue(queue);
+        return MF_ERROR;
     }
 
-    // If you're removing the queue entirely, also remove its semaphore
-    // This step would depend on your actual implementation details
-    // For example, it might be tied to reference counting logic
-    // if (remove_semaphore_for_queue(queue) != MF_SUCCESS) {
-    //     printf("Failed to remove the semaphore for queue.\n");
-    //     return MF_ERROR;
-    // }
+    printf("Message queue '%s' closed successfully.\n", queue->mqname);
+
+    // Unlock the queue after operation
+    if (unlock_queue(queue) != MF_SUCCESS) {
+        printf("Warning: Failed to unlock the queue. This might lead to deadlocks.\n");
+        // In a real implementation, consider logging this error for further investigation
+    }
 
     return MF_SUCCESS;
 }
+
 
 
 // Simplified function to find the end of the queue and check for available space.
@@ -442,36 +705,57 @@ void* find_message_insertion_point(MQMetadata* mq, int messageSize) {
 }
 
 int mf_send(int qid, void *bufptr, int datalen) {
-    if (shm_start == NULL || bufptr == NULL) {
+    if (shm_start == NULL || bufptr == NULL || datalen <= 0) {
         printf("Invalid parameters or shared memory not initialized.\n");
         return MF_ERROR;
     }
 
-    if (qid < 0 || qid >= 10) { // Assuming a maximum of 10 queues
+    if (qid < 0 || qid >= MAX_QUEUES) { 
         printf("Invalid queue identifier.\n");
         return MF_ERROR;
     }
 
     MQMetadata* mq = &((MQMetadata*)shm_start)[qid];
-    if (mq->mqname[0] == '\0') { // Queue is not in use
+    if (!mq->isActive) {
         printf("Queue identifier does not refer to an active queue.\n");
         return MF_ERROR;
     }
 
-    // Find where to insert the new message
-    void* insertionPoint = find_message_insertion_point(mq, datalen);
-    if (!insertionPoint) {
+    // Ensure data length, including its size prefix, can fit in the queue
+    unsigned int totalDataLength = datalen + sizeof(unsigned int); // Include size prefix
+    if (mq->capacity - mq->size < totalDataLength) {
         printf("Not enough space in the queue to send the message.\n");
         return MF_ERROR;
     }
 
-    // Write the message size and data to the queue
-    *((unsigned int*)insertionPoint) = datalen;
-    memcpy((char*)insertionPoint + sizeof(unsigned int), bufptr, datalen);
+    // Lock the queue
+    if (lock_queue(mq) != MF_SUCCESS) {
+        printf("Failed to lock the queue.\n");
+        return MF_ERROR;
+    }
+
+    // Calculate insertion point based on tail
+    char* insertionPoint = (char*)mq + mq->tail;
+
+    // Write the message size and data
+    *((unsigned int*)insertionPoint) = datalen; // Prefix with size
+    memcpy(insertionPoint + sizeof(unsigned int), bufptr, datalen); // Copy message
+
+    // Update metadata
+    mq->tail = (mq->tail + totalDataLength) % mq->capacity; // Advance tail, wrap if necessary
+    mq->size += totalDataLength; // Update current size
 
     printf("Message sent successfully to queue '%s'.\n", mq->mqname);
+
+    // Unlock the queue
+    if (unlock_queue(mq) != MF_SUCCESS) {
+        printf("Failed to unlock the queue.\n");
+        // Consider error handling if unlock fails; primary operation has succeeded
+    }
+
     return MF_SUCCESS;
 }
+
 // Utility function to print a preview of a message's content
 void print_message_preview(void* message, unsigned int size) {
     printf("Message Size: %u, Preview: ", size);
@@ -505,4 +789,50 @@ void mf_print() {
             }
         }
     }
+}
+
+int mf_recv(int qid, void* bufptr, int bufsize) {
+    if (shm_start == NULL || bufptr == NULL) {
+        printf("Invalid parameters or shared memory not initialized.\n");
+        return MF_ERROR;
+    }
+
+    if (qid < 0 || qid >= MAX_QUEUES) {
+        printf("Invalid queue identifier.\n");
+        return MF_ERROR;
+    }
+
+    MQMetadata* mq = &((MQMetadata*)shm_start)[qid];
+    if (!mq->isActive) {
+        printf("Queue identifier does not refer to an active queue.\n");
+        return MF_ERROR;
+    }
+
+    // Lock the queue for exclusive access
+    if (lock_queue(mq) != MF_SUCCESS) {
+        printf("Failed to lock the queue.\n");
+        return MF_ERROR;
+    }
+
+    // Check if the queue has messages
+    if (mq->size == 0) {
+        printf("The queue is empty.\n");
+        unlock_queue(mq);
+        return MF_ERROR;
+    }
+
+    // Assume retrieve_first_message handles reading and updating the queue's metadata
+    int messageSize = retrieve_first_message(mq, bufptr, bufsize);
+    if (messageSize <= 0) {
+        printf("Failed to retrieve a message from the queue '%s'.\n", mq->mqname);
+        unlock_queue(mq); // Ensure to unlock the queue before returning
+        return MF_ERROR;
+    }
+
+    printf("Message retrieved successfully from queue '%s'.\n", mq->mqname);
+
+    // Unlock the queue after operation
+    unlock_queue(mq);
+
+    return messageSize;
 }
