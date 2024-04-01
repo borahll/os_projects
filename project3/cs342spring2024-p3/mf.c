@@ -9,15 +9,24 @@
 #include <sys/mman.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <sys/stat.h>
 #include <semaphore.h>
-#define SHM_NAME "/mf_shared_memory"
-#define MAX_QUEUES 10
+#define GLOBAL_MANAGEMENT_SEM_NAME "/mf_global_management_sem"
+#define SEM_NAME_PREFIX "/mf_sem_"
+// #define MAX_QUEUES 10
 #define MAX_SEM_NAME_SIZE 64
-#define MAX_MQNAMESIZE 128
-#define SHM_SIZE (1024 * 1024) // Example size
+// #define SHM_SIZE (1024 * 1024) // Example size
 #define MF_SUCCESS 0
 #define MF_ERROR -1
 #define INITIAL_CAPACITY 10
+
+typedef struct {
+    char shmem_name[MAX_MQNAMESIZE];
+    int shmem_size;       // In KB
+    int max_msgs_in_queue;
+    int max_queues_in_shmem;
+} MFConfig;
+MFConfig config;
 
 typedef struct {
     pid_t process_id;
@@ -40,10 +49,11 @@ typedef struct {
     unsigned int capacity;
     unsigned int size;
     int isActive;
+    int referenceCount;
 } MQMetadata;
 
 typedef struct {
-    MQMetadata queues[MAX_QUEUES]; // Metadata for each queue
+    MQMetadata* queues; // Metadata for each queue
     unsigned int queue_count; // Total number of active queues
 } ManagementSection;
 // Assuming a global pointer to the start of the shared memory segment
@@ -58,6 +68,40 @@ typedef struct {
     size_t size; // Size of the mapped shared memory
 } SharedMemoryContext;
 SharedMemoryContext shm_context;
+
+
+int read_configuration(const char* filename, MFConfig* config) {
+    FILE* file = fopen(filename, "r");
+    if (!file) {
+        perror("Failed to open configuration file");
+        return -1;
+    }
+
+    char line[1024];
+    while (fgets(line, sizeof(line), file)) {
+        // Ignore comments
+        if (line[0] == '#') {
+            continue;
+        }
+
+        if (strncmp(line, "SHMEM_NAME", 10) == 0) {
+            // Extract the shared memory name
+            sscanf(line, "SHMEM_NAME \"%[^\"]\"", config->shmem_name);
+        } else if (strncmp(line, "SHMEM_SIZE", 10) == 0) {
+            // Extract the shared memory size
+            sscanf(line, "SHMEM_SIZE %d", &config->shmem_size);
+        } else if (strncmp(line, "MAX_MSGS_IN_QUEUE", 17) == 0) {
+            // Extract the maximum messages in a queue
+            sscanf(line, "MAX_MSGS_IN_QUEUE %d", &config->max_msgs_in_queue);
+        } else if (strncmp(line, "MAX_QUEUES_IN_SHMEM", 19) == 0) {
+            // Extract the maximum queues in shared memory
+            sscanf(line, "MAX_QUEUES_IN_SHMEM %d", &config->max_queues_in_shmem);
+        }
+    }
+
+    fclose(file);
+    return 0;
+}
 
 void initActiveProcessList() {
     activeProcessList.processes = (ActiveProcess*)malloc(INITIAL_CAPACITY * sizeof(ActiveProcess));
@@ -109,7 +153,7 @@ void freeActiveProcessList() {
     activeProcessList.size = 0;
     activeProcessList.capacity = 0;
 }
-
+/*
 int parse_config(const char* filename, int* shmem_size) {
     FILE* file = fopen(filename, "r");
     if (file == NULL) {
@@ -127,6 +171,7 @@ int parse_config(const char* filename, int* shmem_size) {
     fclose(file);
     return MF_SUCCESS;
 }
+ */
 // Utility function to retrieve and remove the first message from the queue
 int retrieve_first_message(MQMetadata* mq, void* bufptr, int bufsize) {
     if (mq->size == 0) {
@@ -264,10 +309,6 @@ int remove_semaphore_for_queue(MQMetadata* queue) {
 
 // Initialize the shared memory and management section
 int mf_init() {
-    int shmem_size = 0;
-    if (parse_config(CONFIG_FILENAME, &shmem_size) != MF_SUCCESS) {
-        return MF_ERROR;
-    }
     // Part of mf_init function
     sem_t* globalSem = sem_open(GLOBAL_MANAGEMENT_SEM_NAME, O_CREAT | O_EXCL, 0644, 1);
     if (globalSem == SEM_FAILED) {
@@ -275,33 +316,35 @@ int mf_init() {
         return MF_ERROR;
     }
     sem_close(globalSem); // Close the handle; the semaphore itself remains in the system
-
-    if (shmem_size < MIN_SHMEMSIZE || shmem_size > MAX_SHMEMSIZE) {
+    // Dynamically allocate memory for the number of queues
+    // Initialize or clear the allocated memory if necessary
+    read_configuration(CONFIG_FILENAME, &config);
+    if (config.shmem_size < MIN_SHMEMSIZE || config.shmem_size > MAX_SHMEMSIZE) {
         fprintf(stderr, "Shared memory size in the config file is out of valid range\n");
         return MF_ERROR;
     }
 
-    shmem_size *= 1024; // Convert from KB to bytes
+    config.shmem_size *= 1024; // Convert from KB to bytes
     initActiveProcessList();
-    int fd = shm_open("/mf_shared_memory", O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
+    int fd = shm_open(config.shmem_name, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
     if (fd == -1) {
         perror("shm_open failed");
         return MF_ERROR;
     }
 
-    if (ftruncate(fd, shmem_size) == -1) {
+    if (ftruncate(fd, config.shmem_size) == -1) {
         perror("ftruncate failed");
         close(fd);
-        shm_unlink("/mf_shared_memory");
+        shm_unlink(config.shmem_name);
         return MF_ERROR;
     }
 
     // Mapping the shared memory for access
-    shm_start = mmap(NULL, shmem_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    shm_start = mmap(NULL, config.shmem_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     if (shm_start == MAP_FAILED) {
         perror("mmap failed");
         close(fd);
-        shm_unlink("/mf_shared_memory");
+        shm_unlink(config.shmem_name);
         return MF_ERROR;
     }
 
@@ -310,7 +353,13 @@ int mf_init() {
     // Initialize the management section
     ManagementSection* mgmt = (ManagementSection*)shm_start;
     memset(mgmt, 0, sizeof(ManagementSection)); // Clear the management section to initialize
-
+    memset(mgmt->queues, 0, config.max_queues_in_shmem  * sizeof(MQMetadata));
+    mgmt->queues = (MQMetadata*)malloc(config.max_queues_in_shmem * sizeof(MQMetadata));
+    if (!mgmt->queues) {
+        // Handle memory allocation failure
+        perror("Failed to allocate memory for message queues");
+        return -1;
+    }
     // Optionally, initialize semaphores or other synchronization mechanisms here
     // Note: Detailed semaphore initialization for each queue is more contextually appropriate during mf_create
 
@@ -338,20 +387,24 @@ int mf_destroy() {
             if (sem_unlink(queue->sem_name) == -1) {
                 perror("sem_unlink failed for a message queue semaphore");
             }
+            queue->referenceCount = 0;
         }
     }
-
+    if (mgmt->queues != NULL) {
+        free(mgmt->queues);
+        mgmt->queues = NULL;
+    }
     // Ensure all dynamically allocated memory is freed, if any
     freeActiveProcessList(); // Make sure this function properly frees all allocated memory
 
     // Unmap the shared memory
-    if (munmap(shm_start, SHM_SIZE) == -1) {
+    if (munmap(shm_start, config.shmem_size) == -1) {
         perror("munmap failed");
         return MF_ERROR;
     }
 
     // Unlink the shared memory object
-    if (shm_unlink(SHM_NAME) == -1) {
+    if (shm_unlink(config.shmem_name) == -1) {
         perror("shm_unlink failed");
         return MF_ERROR;
     }
@@ -372,15 +425,9 @@ int mf_destroy() {
 
 int mf_connect() {
     // Optionally read the shared memory details from a configuration file
-    char shm_name[MAX_SHM_NAME_SIZE]; // Placeholder for shared memory name
-    int result = read_configuration(CONFIG_FILENAME, shm_name, &shm_context.size);
-    if (result != MF_SUCCESS) {
-        printf("Failed to read configuration.\n");
-        return MF_ERROR;
-    }
-
+    // char shm_name[MAX_SEM_NAME_SIZE]; // Placeholder for shared memory name
     // Open the shared memory object using the name from the configuration
-    int shm_fd = shm_open(shm_name, O_RDWR, 0);
+    int shm_fd = shm_open(config.shmem_name, O_RDWR, 0);
     if (shm_fd == -1) {
         perror("shm_open in mf_connect failed");
         return MF_ERROR;
@@ -475,7 +522,7 @@ unsigned int align_up(unsigned int size) {
 
 // Mock function to illustrate the concept - real implementation needed
 unsigned int allocate_space_in_shared_memory(unsigned int size) {
-    if (next_free_offset + size > shm_size) {
+    if (next_free_offset + size > config.shmem_size) {
         return (unsigned int)-1; // Not enough space
     }
     unsigned int allocation_start = next_free_offset;
@@ -483,13 +530,13 @@ unsigned int allocate_space_in_shared_memory(unsigned int size) {
     return allocation_start;
 }
 
-int mf_create(const char* mqname, int mqsize) {
+int mf_create(char* mqname, int mqsize) {
     if (shm_start == NULL) {
         printf("Shared memory not initialized.\n");
         return MF_ERROR;
     }
 
-    if (mqname == NULL || mqsize < MIN_QUEUE_SIZE || mqsize > MAX_QUEUE_SIZE) {
+    if (mqname == NULL || mqsize < MIN_MQSIZE || mqsize > MAX_MQSIZE) {
         printf("Invalid queue name or size.\n");
         return MF_ERROR;
     }
@@ -501,7 +548,7 @@ int mf_create(const char* mqname, int mqsize) {
     }
 
     ManagementSection* mgmt = (ManagementSection*)shm_start;
-    if (mgmt->queue_count >= MAX_QUEUES) {
+    if (mgmt->queue_count >= config.max_queues_in_shmem) {
         printf("Maximum number of queues reached.\n");
         unlock_global_management();
         return MF_ERROR;
@@ -517,7 +564,7 @@ int mf_create(const char* mqname, int mqsize) {
     }
 
     // Find an available slot for the new queue
-    for (int i = 0; i < MAX_QUEUES; i++) {
+    for (int i = 0; i < config.max_queues_in_shmem; i++) {
         if (!mgmt->queues[i].isActive) {
             strncpy(mgmt->queues[i].mqname, mqname, MAX_MQNAMESIZE - 1);
             mgmt->queues[i].mqname[MAX_MQNAMESIZE - 1] = '\0'; // Ensure null-termination
@@ -553,7 +600,7 @@ int mf_remove(char *mqname) {
     }
 
     MQMetadata* directory = (MQMetadata*)shm_start;
-    for (int i = 0; i < MAX_QUEUES; i++) { // Use MAX_QUEUES instead of hardcoded value
+    for (int i = 0; i < config.max_queues_in_shmem; i++) { // Use MAX_QUEUES instead of hardcoded value
         if (strncmp(directory[i].mqname, mqname, MAX_MQNAMESIZE) == 0) {
             // Found the queue to remove
             if (directory[i].referenceCount > 0) {
@@ -604,13 +651,13 @@ int mf_open(char *mqname) {
     lock_global_management(); // Pseudocode - Implement based on your synchronization mechanism
 
     ManagementSection* mgmt = (ManagementSection*)shm_start;
-    for (int i = 0; i < MAX_QUEUES; i++) { // Iterate through all possible queues, not just mgmt->queue_count
+    for (int i = 0; i < config.max_queues_in_shmem; i++) { // Iterate through all possible queues, not just mgmt->queue_count
         MQMetadata* queue = &mgmt->queues[i];
         if (strncmp(queue->mqname, mqname, MAX_MQNAMESIZE) == 0 && queue->isActive) {
             // Found an active queue with the matching name
-
+            queue->referenceCount++;
             // Unlock global management structure here
-            // unlock_global_management(); // Pseudocode - Implement unlocking
+            unlock_global_management(); // Pseudocode - Implement unlocking
 
             printf("Message queue '%s' opened successfully.\n", mqname);
             return i; // Return the index as the queue identifier
@@ -640,7 +687,7 @@ int mf_close(int qid) {
     }
 
     ManagementSection* mgmt = (ManagementSection*)shm_start;
-    if (qid < 0 || qid >= MAX_QUEUES) {
+    if (qid < 0 || qid >= config.max_queues_in_shmem) {
         printf("Invalid queue identifier.\n");
         return MF_ERROR;
     }
@@ -663,7 +710,7 @@ int mf_close(int qid) {
     queue->head = 0;
     queue->tail = 0;
     queue->size = 0;
-
+    queue->referenceCount = queue->referenceCount == 0 ? 0 : queue->referenceCount--;
     // Remove the semaphore associated with the queue
     if (remove_semaphore_for_queue(queue) != MF_SUCCESS) {
         printf("Failed to remove the semaphore for queue '%s'.\n", queue->mqname);
@@ -690,7 +737,7 @@ int mf_close(int qid) {
 void* find_message_insertion_point(MQMetadata* mq, int messageSize) {
     // Assuming the first message starts immediately after MQMetadata
     unsigned int currentOffset = mq->start_offset + sizeof(MQMetadata);
-    void* queueEnd = shm_start + mq->end_offset;
+    unsigned int queueEnd = shm_start + mq->end_offset;
 
     while (currentOffset + sizeof(unsigned int) + messageSize <= (unsigned int)queueEnd) {
         unsigned int* messageSizePtr = (unsigned int*)(shm_start + currentOffset);
@@ -710,7 +757,7 @@ int mf_send(int qid, void *bufptr, int datalen) {
         return MF_ERROR;
     }
 
-    if (qid < 0 || qid >= MAX_QUEUES) { 
+    if (qid < 0 || qid >= config.max_queues_in_shmem) {
         printf("Invalid queue identifier.\n");
         return MF_ERROR;
     }
@@ -766,10 +813,10 @@ void print_message_preview(void* message, unsigned int size) {
     printf("\n");
 }
 
-void mf_print() {
+int mf_print() {
     if (shm_start == NULL) {
         printf("Shared memory not initialized.\n");
-        return;
+        return MF_ERROR;
     }
 
     MQMetadata* directory = (MQMetadata*)shm_start;
@@ -789,6 +836,7 @@ void mf_print() {
             }
         }
     }
+    return MF_SUCCESS;
 }
 
 int mf_recv(int qid, void* bufptr, int bufsize) {
@@ -797,7 +845,7 @@ int mf_recv(int qid, void* bufptr, int bufsize) {
         return MF_ERROR;
     }
 
-    if (qid < 0 || qid >= MAX_QUEUES) {
+    if (qid < 0 || qid >= config.max_queues_in_shmem) {
         printf("Invalid queue identifier.\n");
         return MF_ERROR;
     }
