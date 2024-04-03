@@ -11,7 +11,7 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <semaphore.h>
-#define GLOBAL_MANAGEMENT_SEM_NAME "/mf_global_management_sem"
+#define GLOBAL_MANAGEMENT_SEM_NAME_PREFIX "/mf_global_management_sem"
 #define SEM_NAME_PREFIX "/mf_sem_"
 // #define MAX_QUEUES 10
 #define MAX_SEM_NAME_SIZE 64
@@ -19,7 +19,7 @@
 #define MF_SUCCESS 0
 #define MF_ERROR -1
 #define INITIAL_CAPACITY 10
-
+char GLOBAL_MANAGEMENT_SEM_NAME[MAX_MQNAMESIZE];
 typedef struct {
     char shmem_name[MAX_MQNAMESIZE];
     int shmem_size;       // In KB
@@ -310,6 +310,7 @@ int remove_semaphore_for_queue(MQMetadata* queue) {
 // Initialize the shared memory and management section
 int mf_init() {
     // Part of mf_init function
+    GLOBAL_MANAGEMENT_SEM_NAME = GLOBAL_MANAGEMENT_SEM_NAME_PREFIX + getpid();
     sem_t* globalSem = sem_open(GLOBAL_MANAGEMENT_SEM_NAME, O_CREAT | O_EXCL, 0644, 1);
     if (globalSem == SEM_FAILED) {
         perror("Failed to create global management semaphore");
