@@ -96,6 +96,7 @@ int read_configuration(const char* filename, MFConfig* config) {
         if (strncmp(line, "SHMEM_NAME", 10) == 0) {
             // Extract the shared memory name
             sscanf(line, "SHMEM_NAME \"%[^\"]\"", config->shmem_name);
+            printf(config->shmem_name);
         } else if (strncmp(line, "SHMEM_SIZE", 10) == 0) {
             // Extract the shared memory size
             sscanf(line, "SHMEM_SIZE %d", &config->shmem_size);
@@ -342,6 +343,7 @@ int mf_init() {
     // Initialize or clear the allocated memory if necessary
     printf("here1\n");
     read_configuration(CONFIG_FILENAME, &config);
+    printf(config.shmem_name,"\n");
     if (config.shmem_size < MIN_SHMEMSIZE || config.shmem_size > MAX_SHMEMSIZE) {
         fprintf(stderr, "Shared memory size in the config file is out of valid range\n");
         return MF_ERROR;
@@ -463,9 +465,15 @@ int mf_connect() {
     // Optionally read the shared memory details from a configuration file
     // char shm_name[MAX_SEM_NAME_SIZE]; // Placeholder for shared memory name
     // Open the shared memory object using the name from the configuration
-    int shm_fd = shm_open(config.shmem_name, O_RDWR, 0);
+    MFConfig config2;
+    read_configuration(CONFIG_FILENAME, &config2);
+  printf("Inside: %s\n", config2.shmem_name);
+
+    int shm_fd = shm_open(config2.shmem_name, O_RDWR, 0);
+    //printf("%sTest1", config.shmem_name);
+    printf("\n%sTest2","\n");
     if (shm_fd == -1) {
-        perror("shm_open in mf_connect failed");
+        perror("shm_opessn in mf_connect failed");
         return MF_ERROR;
     }
 
