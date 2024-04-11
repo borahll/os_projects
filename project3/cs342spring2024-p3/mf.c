@@ -336,23 +336,27 @@ int mf_init() {
         perror("Failed to open global management semaphore");
         return MF_ERROR;
     }
-
+    printf("here\n");
     sem_close(globalSem); // Close the handle; the semaphore itself remains in the system
     // Dynamically allocate memory for the number of queues
     // Initialize or clear the allocated memory if necessary
+    printf("here1\n");
     read_configuration(CONFIG_FILENAME, &config);
     if (config.shmem_size < MIN_SHMEMSIZE || config.shmem_size > MAX_SHMEMSIZE) {
         fprintf(stderr, "Shared memory size in the config file is out of valid range\n");
         return MF_ERROR;
     }
+    printf("here2\n");
 
     config.shmem_size *= 1024; // Convert from KB to bytes
     initActiveProcessList();
+    printf("here3\n");
     int fd = shm_open(config.shmem_name, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
     if (fd == -1) {
         perror("shm_open failed");
         return MF_ERROR;
     }
+    printf("here4\n");
 
     if (ftruncate(fd, config.shmem_size) == -1) {
         perror("ftruncate failed");
@@ -360,6 +364,7 @@ int mf_init() {
         shm_unlink(config.shmem_name);
         return MF_ERROR;
     }
+    printf("here5\n");
 
     // Mapping the shared memory for access
     shm_start = mmap(NULL, config.shmem_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
@@ -369,21 +374,30 @@ int mf_init() {
         shm_unlink(config.shmem_name);
         return MF_ERROR;
     }
+    printf("here6\n");
 
     close(fd); // Close the file descriptor as it's no longer needed
+    printf("here7\n");
 
     // Initialize the management section
     ManagementSection* mgmt = (ManagementSection*)shm_start;
+    printf("here8\n");
     memset(mgmt, 0, sizeof(ManagementSection)); // Clear the management section to initialize
-    memset(mgmt->queues, 0, config.max_queues_in_shmem  * sizeof(MQMetadata));
+    printf("here9\n");
+
     mgmt->queues = (MQMetadata*)malloc(config.max_queues_in_shmem * sizeof(MQMetadata));
-    if (!mgmt->queues) {
+    if (mgmt->queues == NULL) {
         // Handle memory allocation failure
         perror("Failed to allocate memory for message queues");
         return -1;
     }
+
+    memset(mgmt->queues, 0, config.max_queues_in_shmem * sizeof(MQMetadata));
+    printf("here10\n");
+
     // Optionally, initialize semaphores or other synchronization mechanisms here
     // Note: Detailed semaphore initialization for each queue is more contextually appropriate during mf_create
+
 
     return MF_SUCCESS;
 }
