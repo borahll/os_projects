@@ -319,7 +319,9 @@ int remove_semaphore_for_queue(MQMetadata* queue) {
 // Initialize the shared memory and management section
 int mf_init() {
     // Part of mf_init function
+
     generate_general_semaphore_name();
+
     sem_t* globalSem = sem_open(GLOBAL_MANAGEMENT_SEM_NAME, O_CREAT | O_EXCL, 0644, 1);
     if (globalSem == SEM_FAILED) {
         if (errno == EEXIST) {
