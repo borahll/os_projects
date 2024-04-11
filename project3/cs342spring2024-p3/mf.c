@@ -4,14 +4,16 @@
 #include <malloc.h>
 #include <assert.h>
 #include <string.h>
+#include <errno.h>
 #include <ctype.h>
 #include "mf.h"
+#include <time.h>
 #include <sys/mman.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <semaphore.h>
-#define GLOBAL_MANAGEMENT_SEM_NAME "/mf_global_management_sem"
+#define GLOBAL_MANAGEMENT_SEM_NAME_PREFIX "/mf_global_management_sem"
 #define SEM_NAME_PREFIX "/mf_sem_"
 // #define MAX_QUEUES 10
 #define MAX_SEM_NAME_SIZE 64
@@ -19,6 +21,8 @@
 #define MF_SUCCESS 0
 #define MF_ERROR -1
 #define INITIAL_CAPACITY 10
+
+char GLOBAL_MANAGEMENT_SEM_NAME[MAX_SEM_NAME_SIZE];
 
 typedef struct {
     char shmem_name[MAX_MQNAMESIZE];
@@ -69,6 +73,11 @@ typedef struct {
 } SharedMemoryContext;
 SharedMemoryContext shm_context;
 
+
+void generate_general_semaphore_name() {
+    time_t now = time(NULL);
+    snprintf(GLOBAL_MANAGEMENT_SEM_NAME, MAX_SEM_NAME_SIZE, "%s_%ld", GLOBAL_MANAGEMENT_SEM_NAME_PREFIX, now);
+}
 
 int read_configuration(const char* filename, MFConfig* config) {
     FILE* file = fopen(filename, "r");
@@ -310,11 +319,22 @@ int remove_semaphore_for_queue(MQMetadata* queue) {
 // Initialize the shared memory and management section
 int mf_init() {
     // Part of mf_init function
+    generate_general_semaphore_name();
     sem_t* globalSem = sem_open(GLOBAL_MANAGEMENT_SEM_NAME, O_CREAT | O_EXCL, 0644, 1);
     if (globalSem == SEM_FAILED) {
-        perror("Failed to create global management semaphore");
+        if (errno == EEXIST) {
+            globalSem = sem_open(GLOBAL_MANAGEMENT_SEM_NAME, 0); // Open existing semaphore
+        } else {
+            perror("Failed to create global management semaphore");
+            return MF_ERROR;
+        }
+    }
+
+    if (globalSem == SEM_FAILED) {
+        perror("Failed to open global management semaphore");
         return MF_ERROR;
     }
+
     sem_close(globalSem); // Close the handle; the semaphore itself remains in the system
     // Dynamically allocate memory for the number of queues
     // Initialize or clear the allocated memory if necessary
