@@ -451,9 +451,13 @@ int mf_connect() {
     // Optionally read the shared memory details from a configuration file
     // char shm_name[MAX_SEM_NAME_SIZE]; // Placeholder for shared memory name
     // Open the shared memory object using the name from the configuration
+    MFConfig config2;
+    read_configuration(CONFIG_FILENAME, &config2);
+    printf("Inside: %s\n", config2.shmem_name);
+
+    int shm_fd = shm_open(config2.shmem_name, O_RDWR, 0);
     printf("Inside: %s\n", config.shmem_name);
 
-    int shm_fd = shm_open(config.shmem_name, O_RDWR, 0);
     printf("Test2\n");
     if (shm_fd == -1) {
         perror("shm_opessn in mf_connect failed");
