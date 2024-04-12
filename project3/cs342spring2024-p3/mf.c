@@ -451,12 +451,9 @@ int mf_connect() {
     // Optionally read the shared memory details from a configuration file
     // char shm_name[MAX_SEM_NAME_SIZE]; // Placeholder for shared memory name
     // Open the shared memory object using the name from the configuration
-    MFConfig config2;
-    read_configuration(CONFIG_FILENAME, &config2);
-    printf("Inside: %s\n", config2.shmem_name);
+    printf("Inside: %s\n", config.shmem_name);
 
-    int shm_fd = shm_open(config2.shmem_name, O_RDWR, 0);
-    //printf("%sTest1", config.shmem_name);
+    int shm_fd = shm_open(config.shmem_name, O_RDWR, 0);
     printf("Test2\n");
     if (shm_fd == -1) {
         perror("shm_opessn in mf_connect failed");
@@ -481,21 +478,13 @@ int mf_connect() {
     }
 
     // Lock global management before modifying shared data structures
-    printf("%s\n", GLOBAL_MANAGEMENT_SEM_NAME);
-    sem_t* globalSem = sem_open(GLOBAL_MANAGEMENT_SEM_NAME, O_CREAT | O_EXCL, 0644, 1);
-    if (globalSem == SEM_FAILED) {
-        if (errno == EEXIST) {
-            globalSem = sem_open(GLOBAL_MANAGEMENT_SEM_NAME, 0); // Open existing semaphore
-        } else {
-            perror("Failed to create global management semaphore");
-            return MF_ERROR;
-        }
-    }
-
+    printf("Global sem name: %s\n", GLOBAL_MANAGEMENT_SEM_NAME);
+    sem_t* globalSem = sem_open(GLOBAL_MANAGEMENT_SEM_NAME, 0);
     if (globalSem == SEM_FAILED) {
         perror("Failed to open global management semaphore");
         return MF_ERROR;
     }
+
 
     // Add the current process to the active process list
     addActiveProcess(getpid());
