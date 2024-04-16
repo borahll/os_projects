@@ -320,35 +320,7 @@ int remove_semaphore_for_queue(MQMetadata* queue) {
 // Initialize the shared memory and management section
 int mf_init() {
     // Part of mf_init function
-
-    generate_general_semaphore_name();
-
-    sem_t* globalSem = sem_open(GLOBAL_MANAGEMENT_SEM_NAME, O_CREAT | O_EXCL, 0644, 1);
-    if (globalSem == SEM_FAILED) {
-        if (errno == EEXIST) {
-            globalSem = sem_open(GLOBAL_MANAGEMENT_SEM_NAME, 0); // Open existing semaphore
-        } else {
-            perror("Failed to create global management semaphore");
-            return MF_ERROR;
-        }
-    }
-
-    if (globalSem == SEM_FAILED) {
-        perror("Failed to open global management semaphore");
-        return MF_ERROR;
-    }
-    // Dynamically allocate memory for the number of queues
-    // Initialize or clear the allocated memory if necessary
     read_configuration(CONFIG_FILENAME, &config);
-    printf(config.shmem_name,"\n");
-    config.shmem_size *= 1024; // Convert from KB to bytes
-    initActiveProcessList();
-    if (config.shmem_size /1024 < MIN_SHMEMSIZE || config.shmem_size/1024  > MAX_SHMEMSIZE) {
-        fprintf(stderr, "Shared memory size in the config file is out of valid range\n");
-        return MF_ERROR;
-    }
-
-
     int fd = shm_open(config.shmem_name, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
     if (fd == -1) {
         perror("shm_open failed");
@@ -371,21 +343,6 @@ int mf_init() {
     }
 
     close(fd); // Close the file descriptor as it's no longer needed
-
-    // Initialize the management section
-    ManagementSection* mgmt = (ManagementSection*)shm_start;
-    memset(mgmt, 0, sizeof(ManagementSection)); // Clear the management section to initialize
-    mgmt->queues = (MQMetadata*)malloc(config.max_queues_in_shmem * sizeof(MQMetadata));
-    if (mgmt->queues == NULL) {
-        // Handle memory allocation failure
-        perror("Failed to allocate memory for message queues");
-        return -1;
-    }
-
-    memset(mgmt->queues, 0, config.max_queues_in_shmem * sizeof(MQMetadata));
-    // Optionally, initialize semaphores or other synchronization mechanisms here
-    // Note: Detailed semaphore initialization for each queue is more contextually appropriate during mf_create
-    sem_close(globalSem); // Close the handle; the semaphore itself remains in the system
 
     return MF_SUCCESS;
 }
@@ -451,6 +408,69 @@ int mf_connect() {
     // Optionally read the shared memory details from a configuration file
     // char shm_name[MAX_SEM_NAME_SIZE]; // Placeholder for shared memory name
     // Open the shared memory object using the name from the configuration
+    generate_general_semaphore_name();
+
+    sem_t* globalSem = sem_open(GLOBAL_MANAGEMENT_SEM_NAME, O_CREAT | O_EXCL, 0644, 1);
+    if (globalSem == SEM_FAILED) {
+        if (errno == EEXIST) {
+            globalSem = sem_open(GLOBAL_MANAGEMENT_SEM_NAME, 0); // Open existing semaphore
+        } else {
+            perror("Failed to create global management semaphore");
+            return MF_ERROR;
+        }
+    }
+
+    if (globalSem == SEM_FAILED) {
+        perror("Failed to open global management semaphore");
+        return MF_ERROR;
+    }
+    // Dynamically allocate memory for the number of queues
+    // Initialize or clear the allocated memory if necessary
+    read_configuration(CONFIG_FILENAME, &config);
+    config.shmem_size *= 1024; // Convert from KB to bytes
+    //printf("\033[0;32m pass 1 \033[0m\n");
+    initActiveProcessList();
+    //printf("\033[0;32m pass 2 \033[0m\n");
+
+    if (config.shmem_size /1024 < MIN_SHMEMSIZE || config.shmem_size/1024  > MAX_SHMEMSIZE) {
+        fprintf(stderr, "Shared memory size in the config file is out of valid range\n");
+        return MF_ERROR;
+    }
+    //printf("\033[0;32m pass 3 \033[0m\n");
+
+    // Initialize the management section
+
+
+    /*
+     * The following must be done everytime, shm_ptr is going to be accessed
+     */
+
+    int fd = shm_open(config.shmem_name, O_RDWR, 0666);
+    shm_start = mmap(NULL, config.shmem_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    close(fd); // The file descriptor can be closed after mapping
+
+
+    ManagementSection* mgmt = (ManagementSection*)shm_start;
+    //printf("\033[0;32m pass 4.1 \033[0m\n");
+
+    memset(mgmt, 0, sizeof(ManagementSection)); // Clear the management section to initialize
+    //printf("\033[0;32m pass 4.2 \033[0m\n");
+
+    mgmt->queues = (MQMetadata*)malloc(config.max_queues_in_shmem * sizeof(MQMetadata));
+    //printf("\033[0;32m pass 4.3 \033[0m\n");
+
+    if (mgmt->queues == NULL) {
+        // Handle memory allocation failure
+        perror("Failed to allocate memory for message queues");
+        return -1;
+    }
+
+    memset(mgmt->queues, 0, config.max_queues_in_shmem * sizeof(MQMetadata));
+    // Optionally, initialize semaphores or other synchronization mechanisms here
+    // Note: Detailed semaphore initialization for each queue is more contextually appropriate during mf_create
+    sem_close(globalSem); // Close the handle; the semaphore itself remains in the system
+    //printf("\033[0;32m pass 5 \033[0m\n");
+
     printf("Inside: %s\n", config.shmem_name);
 
     int shm_fd = shm_open(config.shmem_name, O_RDWR, 0);
@@ -469,6 +489,7 @@ int mf_connect() {
         return MF_ERROR;
     }
     shm_context.size = shm_stat.st_size;
+    //printf("\033[0;32m pass 6 \033[0m\n");
 
     // Map the shared memory object
     shm_context.ptr = mmap(NULL, shm_context.size, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
@@ -477,24 +498,29 @@ int mf_connect() {
         close(shm_fd);
         return MF_ERROR;
     }
+    //printf("\033[0;32m pass 7 \033[0m\n");
 
     // Lock global management before modifying shared data structures
     printf("Global sem name: %s\n", GLOBAL_MANAGEMENT_SEM_NAME);
-    sem_t* globalSem = sem_open(GLOBAL_MANAGEMENT_SEM_NAME, 0);
-    if (globalSem == SEM_FAILED) {
+
+    if (sem_open(GLOBAL_MANAGEMENT_SEM_NAME, 0) == SEM_FAILED) {
         perror("Failed to open global management semaphore");
         return MF_ERROR;
     }
 
+   // printf("\033[0;32m pass 8 \033[0m\n");
 
     // Add the current process to the active process list
     addActiveProcess(getpid());
+    //printf("\033[0;32m pass 9 \033[0m\n");
 
     // Unlock global management after updates
     sem_close(globalSem);
+    //printf("\033[0;32m pass 10 \033[0m\n");
 
     // Close the file descriptor as it's no longer needed after mmap
     close(shm_fd);
+    //printf("\033[0;32m pass 11 \033[0m\n");
 
     return MF_SUCCESS;
 }
@@ -570,20 +596,31 @@ int mf_create(char* mqname, int mqsize) {
         printf("Invalid queue name or size.\n");
         return MF_ERROR;
     }
-
+    printf("\033[0;32m pass 1 \033[0m\n");
     // Lock global management structure
-    if (lock_global_management() != MF_SUCCESS) {
-        printf("Failed to lock global management.\n");
+    sem_t* globalSem = sem_open(GLOBAL_MANAGEMENT_SEM_NAME, O_CREAT | O_EXCL, 0644, 1);
+    if (globalSem == SEM_FAILED) {
+        if (errno == EEXIST) {
+            globalSem = sem_open(GLOBAL_MANAGEMENT_SEM_NAME, 0); // Open existing semaphore
+        } else {
+            perror("Failed to create global management semaphore");
+            return MF_ERROR;
+        }
+    }
+
+    if (globalSem == SEM_FAILED) {
+        perror("Failed to open global management semaphore");
         return MF_ERROR;
     }
 
+    printf("\033[0;32m pass 2 \033[0m\n");
     ManagementSection* mgmt = (ManagementSection*)shm_start;
     if (mgmt->queue_count >= config.max_queues_in_shmem) {
         printf("Maximum number of queues reached.\n");
         unlock_global_management();
         return MF_ERROR;
     }
-
+    printf("\033[0;32m pass 3 \033[0m\n");
     // Check for an existing queue with the same name
     for (int i = 0; i < mgmt->queue_count; i++) {
         if (strncmp(mgmt->queues[i].mqname, mqname, MAX_MQNAMESIZE) == 0 && mgmt->queues[i].isActive) {
@@ -592,7 +629,7 @@ int mf_create(char* mqname, int mqsize) {
             return MF_ERROR;
         }
     }
-
+    printf("\033[0;32m pass 4 \033[0m\n");
     // Find an available slot for the new queue
     for (int i = 0; i < config.max_queues_in_shmem; i++) {
         if (!mgmt->queues[i].isActive) {
@@ -604,16 +641,16 @@ int mf_create(char* mqname, int mqsize) {
             if (initialize_semaphore_for_queue(&mgmt->queues[i], i) != MF_SUCCESS) {
                 printf("Failed to initialize semaphore for queue '%s'.\n", mqname);
                 mgmt->queues[i].isActive = 0; // Revert activation due to failure
-                unlock_global_management();
+                sem_close(globalSem);
                 return MF_ERROR;
             }
             mgmt->queue_count++;
-            unlock_global_management();
+            sem_close(globalSem);
             return i; // Return the index as the queue identifier
         }
     }
-
-    unlock_global_management();
+    printf("\033[0;32m pass 5 \033[0m\n");
+    sem_close(globalSem);
     return MF_ERROR; // No available slot found
 }
 

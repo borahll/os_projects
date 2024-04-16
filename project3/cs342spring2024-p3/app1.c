@@ -28,7 +28,6 @@ int main(int argc, char **argv) {
         char *bufptr = (char *)malloc(MAX_DATALEN);
         sem1 = sem_open(semname1, 0);
         sem2 = sem_open(semname2, 0);
-        printf("pid number: %d", getpid());
         mf_connect();
         mf_create(mqname1, 16); // Create mq; 16 KB
         qid = mf_open(mqname1);
