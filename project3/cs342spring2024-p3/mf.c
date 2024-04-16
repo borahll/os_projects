@@ -232,15 +232,23 @@ void generate_semaphore_name(char* dest, const char* mqname, int index) {
 // Initialize semaphore for a message queue
 int initialize_semaphore_for_queue(MQMetadata* queue, int index) {
     char sem_name[MAX_SEM_NAME_SIZE];
+    //printf("\033[0;32m pass 4.5 \033[0m\n");
     generate_semaphore_name(sem_name, queue->mqname, index);
+    //printf("\033[0;32m pass 4.6 \033[0m\n");
+
     strncpy(queue->sem_name, sem_name, MAX_SEM_NAME_SIZE);
+    //printf("\033[0;32m pass 4.6.1 \033[0m\n");
 
     sem_t* sem = sem_open(sem_name, O_CREAT | O_EXCL, 0644, 1); // Initial value is 1 for unlocked
+    //printf("\033[0;32m pass 4.7 \033[0m\n");
+
     if (sem == SEM_FAILED) {
         perror("Failed to create semaphore");
         return MF_ERROR;
     }
     sem_close(sem); // Close handle, semaphore is not removed
+    //printf("\033[0;32m pass 4.8 \033[0m\n");
+
     return MF_SUCCESS;
 }
 
@@ -596,7 +604,7 @@ int mf_create(char* mqname, int mqsize) {
         printf("Invalid queue name or size.\n");
         return MF_ERROR;
     }
-    printf("\033[0;32m pass 1 \033[0m\n");
+    //printf("\033[0;32m pass 1 \033[0m\n");
     // Lock global management structure
     sem_t* globalSem = sem_open(GLOBAL_MANAGEMENT_SEM_NAME, O_CREAT | O_EXCL, 0644, 1);
     if (globalSem == SEM_FAILED) {
@@ -613,14 +621,14 @@ int mf_create(char* mqname, int mqsize) {
         return MF_ERROR;
     }
 
-    printf("\033[0;32m pass 2 \033[0m\n");
+    //printf("\033[0;32m pass 2 \033[0m\n");
     ManagementSection* mgmt = (ManagementSection*)shm_start;
     if (mgmt->queue_count >= config.max_queues_in_shmem) {
         printf("Maximum number of queues reached.\n");
         unlock_global_management();
         return MF_ERROR;
     }
-    printf("\033[0;32m pass 3 \033[0m\n");
+    //printf("\033[0;32m pass 3 \033[0m\n");
     // Check for an existing queue with the same name
     for (int i = 0; i < mgmt->queue_count; i++) {
         if (strncmp(mgmt->queues[i].mqname, mqname, MAX_MQNAMESIZE) == 0 && mgmt->queues[i].isActive) {
@@ -629,7 +637,7 @@ int mf_create(char* mqname, int mqsize) {
             return MF_ERROR;
         }
     }
-    printf("\033[0;32m pass 4 \033[0m\n");
+    //printf("\033[0;32m pass 4 \033[0m\n");
     // Find an available slot for the new queue
     for (int i = 0; i < config.max_queues_in_shmem; i++) {
         if (!mgmt->queues[i].isActive) {
@@ -638,18 +646,25 @@ int mf_create(char* mqname, int mqsize) {
             mgmt->queues[i].isActive = 1;
             mgmt->queues[i].capacity = mqsize;
             // Initialize semaphore for the queue
+            //printf("\033[0;32m pass 4.1 \033[0m\n");
             if (initialize_semaphore_for_queue(&mgmt->queues[i], i) != MF_SUCCESS) {
+                //printf("\033[0;32m pass 4.2 \033[0m\n");
                 printf("Failed to initialize semaphore for queue '%s'.\n", mqname);
                 mgmt->queues[i].isActive = 0; // Revert activation due to failure
                 sem_close(globalSem);
                 return MF_ERROR;
             }
+            //printf("\033[0;32m pass 4.3 \033[0m\n");
+
             mgmt->queue_count++;
+            //printf("\033[0;32m pass 4.4 \033[0m\n");
             sem_close(globalSem);
+            //printf("\033[0;32m pass 4.5 \033[0m\n");
+            printf("queue index: %d \n", i);
             return i; // Return the index as the queue identifier
         }
     }
-    printf("\033[0;32m pass 5 \033[0m\n");
+    //printf("\033[0;32m pass 5 \033[0m\n");
     sem_close(globalSem);
     return MF_ERROR; // No available slot found
 }
@@ -715,7 +730,20 @@ int mf_open(char *mqname) {
     }
 
     // Lock global management structure here (Assuming a function or mechanism for this)
-    lock_global_management(); // Pseudocode - Implement based on your synchronization mechanism
+    sem_t* globalSem = sem_open(GLOBAL_MANAGEMENT_SEM_NAME, O_CREAT | O_EXCL, 0644, 1);
+    if (globalSem == SEM_FAILED) {
+        if (errno == EEXIST) {
+            globalSem = sem_open(GLOBAL_MANAGEMENT_SEM_NAME, 0); // Open existing semaphore
+        } else {
+            perror("Failed to create global management semaphore");
+            return MF_ERROR;
+        }
+    }
+
+    if (globalSem == SEM_FAILED) {
+        perror("Failed to open global management semaphore");
+        return MF_ERROR;
+    }
 
     ManagementSection* mgmt = (ManagementSection*)shm_start;
     for (int i = 0; i < config.max_queues_in_shmem; i++) { // Iterate through all possible queues, not just mgmt->queue_count
