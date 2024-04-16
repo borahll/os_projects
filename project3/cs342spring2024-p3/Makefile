@@ -35,5 +35,5 @@ test: test.c
 
 clean:
 	rm -rf core  *.o *.out *~ $(TARGETS)
-	
-	
+	rm -rf  /dev/shm/sem.mf_global_management_sem_* /dev/shm/sharedmemoryname
+	clear
