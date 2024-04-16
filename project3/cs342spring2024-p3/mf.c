@@ -60,6 +60,7 @@ typedef struct {
     MQMetadata* queues; // Metadata for each queue
     unsigned int queue_count; // Total number of active queues
 } ManagementSection;
+ManagementSection* mgmt;
 // Assuming a global pointer to the start of the shared memory segment
 void* shm_start = NULL;
 unsigned int shm_size = 0; // Total size of the shared memory
@@ -367,7 +368,7 @@ int mf_destroy() {
         // Decide if failure to lock should abort the destruction process
     }
 
-    ManagementSection* mgmt = (ManagementSection*)shm_start;
+    mgmt = (ManagementSection*)shm_start;
 
     // Iterate over all message queues to unlink their semaphores
     for (int i = 0; i < mgmt->queue_count; i++) {
@@ -458,7 +459,7 @@ int mf_connect() {
     close(fd); // The file descriptor can be closed after mapping
 
 
-    ManagementSection* mgmt = (ManagementSection*)shm_start;
+    mgmt = (ManagementSection*)shm_start;
     //printf("\033[0;32m pass 4.1 \033[0m\n");
 
     memset(mgmt, 0, sizeof(ManagementSection)); // Clear the management section to initialize
@@ -622,10 +623,9 @@ int mf_create(char* mqname, int mqsize) {
     }
 
     //printf("\033[0;32m pass 2 \033[0m\n");
-    ManagementSection* mgmt = (ManagementSection*)shm_start;
     if (mgmt->queue_count >= config.max_queues_in_shmem) {
         printf("Maximum number of queues reached.\n");
-        unlock_global_management();
+        sem_close(globalSem);
         return MF_ERROR;
     }
     //printf("\033[0;32m pass 3 \033[0m\n");
@@ -633,7 +633,7 @@ int mf_create(char* mqname, int mqsize) {
     for (int i = 0; i < mgmt->queue_count; i++) {
         if (strncmp(mgmt->queues[i].mqname, mqname, MAX_MQNAMESIZE) == 0 && mgmt->queues[i].isActive) {
             printf("Queue with the name '%s' already exists.\n", mqname);
-            unlock_global_management();
+            sem_close(globalSem);
             return MF_ERROR;
         }
     }
@@ -731,6 +731,7 @@ int mf_open(char *mqname) {
 
     // Lock global management structure here (Assuming a function or mechanism for this)
     sem_t* globalSem = sem_open(GLOBAL_MANAGEMENT_SEM_NAME, O_CREAT | O_EXCL, 0644, 1);
+    printf("isActive: %d \n", mgmt->queues[0].isActive);
     if (globalSem == SEM_FAILED) {
         if (errno == EEXIST) {
             globalSem = sem_open(GLOBAL_MANAGEMENT_SEM_NAME, 0); // Open existing semaphore
@@ -745,14 +746,13 @@ int mf_open(char *mqname) {
         return MF_ERROR;
     }
 
-    ManagementSection* mgmt = (ManagementSection*)shm_start;
     for (int i = 0; i < config.max_queues_in_shmem; i++) { // Iterate through all possible queues, not just mgmt->queue_count
         MQMetadata* queue = &mgmt->queues[i];
         if (strncmp(queue->mqname, mqname, MAX_MQNAMESIZE) == 0 && queue->isActive) {
             // Found an active queue with the matching name
             queue->referenceCount++;
             // Unlock global management structure here
-            unlock_global_management(); // Pseudocode - Implement unlocking
+            sem_close(globalSem);
 
             printf("Message queue '%s' opened successfully.\n", mqname);
             return i; // Return the index as the queue identifier
@@ -767,7 +767,7 @@ int mf_open(char *mqname) {
     // }
 
     // Unlock global management structure here if no queue is found and no new queue is created
-    unlock_global_management(); // Pseudocode - Implement unlocking
+    sem_close(globalSem);
 
     printf("Message queue '%s' not found.\n", mqname);
     return MF_ERROR; // Queue not found
@@ -780,8 +780,7 @@ int mf_close(int qid) {
         printf("Shared memory not initialized.\n");
         return MF_ERROR;
     }
-
-    ManagementSection* mgmt = (ManagementSection*)shm_start;
+    //mgmt = (ManagementSection*)shm_start;
     if (qid < 0 || qid >= config.max_queues_in_shmem) {
         printf("Invalid queue identifier.\n");
         return MF_ERROR;
@@ -851,30 +850,33 @@ int mf_send(int qid, void *bufptr, int datalen) {
         printf("Invalid parameters or shared memory not initialized.\n");
         return MF_ERROR;
     }
-
+    printf("\033[0;32m pass 1 \033[0m\n");
     if (qid < 0 || qid >= config.max_queues_in_shmem) {
         printf("Invalid queue identifier.\n");
         return MF_ERROR;
     }
-
-    MQMetadata* mq = &((MQMetadata*)shm_start)[qid];
+    MQMetadata* mq = &((MQMetadata*)mgmt->queues)[qid];
+    printf("\033[0;32m pass 2 %d %s  \033[0m\n", mq->isActive, mq->mqname);
     if (!mq->isActive) {
         printf("Queue identifier does not refer to an active queue.\n");
         return MF_ERROR;
     }
-
+    printf("\033[0;32m pass 3 \033[0m\n");
     // Ensure data length, including its size prefix, can fit in the queue
     unsigned int totalDataLength = datalen + sizeof(unsigned int); // Include size prefix
-    if (mq->capacity - mq->size < totalDataLength) {
+    // TODO BURAYA DIKKAT
+    if (mq->capacity - mq->size < totalDataLength/1024) {
         printf("Not enough space in the queue to send the message.\n");
         return MF_ERROR;
     }
+    printf("\033[0;32m pass 4 \033[0m\n");
 
     // Lock the queue
     if (lock_queue(mq) != MF_SUCCESS) {
         printf("Failed to lock the queue.\n");
         return MF_ERROR;
     }
+    printf("\033[0;32m pass 5 \033[0m\n");
 
     // Calculate insertion point based on tail
     char* insertionPoint = (char*)mq + mq->tail;
@@ -882,10 +884,12 @@ int mf_send(int qid, void *bufptr, int datalen) {
     // Write the message size and data
     *((unsigned int*)insertionPoint) = datalen; // Prefix with size
     memcpy(insertionPoint + sizeof(unsigned int), bufptr, datalen); // Copy message
+    printf("\033[0;32m pass 6 \033[0m\n");
 
     // Update metadata
     mq->tail = (mq->tail + totalDataLength) % mq->capacity; // Advance tail, wrap if necessary
     mq->size += totalDataLength; // Update current size
+    printf("\033[0;32m pass 7 \033[0m\n");
 
     printf("Message sent successfully to queue '%s'.\n", mq->mqname);
 
@@ -894,6 +898,7 @@ int mf_send(int qid, void *bufptr, int datalen) {
         printf("Failed to unlock the queue.\n");
         // Consider error handling if unlock fails; primary operation has succeeded
     }
+    printf("\033[0;32m pass 8 \033[0m\n");
 
     return MF_SUCCESS;
 }
