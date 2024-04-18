@@ -348,7 +348,7 @@ int mf_init() {
         shm_unlink(config.shmem_name);
         return MF_ERROR;
     }
-
+    generate_general_semaphore_name();
     // Mapping the shared memory for access
     shm_start = mmap(NULL, config.shmem_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     if (shm_start == MAP_FAILED) {
@@ -424,8 +424,7 @@ int mf_connect() {
     // Optionally read the shared memory details from a configuration file
     // char shm_name[MAX_SEM_NAME_SIZE]; // Placeholder for shared memory name
     // Open the shared memory object using the name from the configuration
-    generate_general_semaphore_name();
-
+    strcpy(GLOBAL_MANAGEMENT_SEM_NAME, "mf_global_management_sem_c583b0f3-addc-4567-8f1a-d4b544c30076");
     sem_t* globalSem = sem_open(GLOBAL_MANAGEMENT_SEM_NAME, O_CREAT | O_EXCL, 0644, 1);
     if (globalSem == SEM_FAILED) {
         if (errno == EEXIST) {
@@ -445,7 +444,7 @@ int mf_connect() {
     read_configuration(CONFIG_FILENAME, &config);
     config.shmem_size *= 1024; // Convert from KB to bytes
     //printf("\033[0;32m pass 1 \033[0m\n");
-    initActiveProcessList();
+    initActiveProcessList(); //TODO
     //printf("\033[0;32m pass 2 \033[0m\n");
 
     if (config.shmem_size /1024 < MIN_SHMEMSIZE || config.shmem_size/1024  > MAX_SHMEMSIZE) {
