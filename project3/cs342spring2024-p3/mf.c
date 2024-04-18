@@ -1,3 +1,11 @@
+/**
+ *
+ * TODO: initialize the general semaphore name  mf_init, fetch the generated sem name from the computer. This way we do not need to use a shm for sem name
+ * TODO: put the management section and ActiveProcessList into the shm.
+ */
+
+
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -76,8 +84,7 @@ SharedMemoryContext shm_context;
 
 
 void generate_general_semaphore_name() {
-    time_t now = time(NULL);
-    snprintf(GLOBAL_MANAGEMENT_SEM_NAME, MAX_SEM_NAME_SIZE, "%s_%ld", GLOBAL_MANAGEMENT_SEM_NAME_PREFIX, now);
+    snprintf(GLOBAL_MANAGEMENT_SEM_NAME, MAX_SEM_NAME_SIZE, "%s_%s", GLOBAL_MANAGEMENT_SEM_NAME_PREFIX, "c583b0f3-addc-4567-8f1a-d4b544c30076");
 }
 
 int read_configuration(const char* filename, MFConfig* config) {
