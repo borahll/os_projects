@@ -36,6 +36,7 @@ test: test.c
 clean:
 	rm -rf core  *.o *.out *~ $(TARGETS)
 	rm -rf  /dev/shm/sem.mf_global_management_sem_* /dev/shm/sharedmemoryname
+	rm -rf  /dev/shm/sem.mf_sem_msgqueue1_0
 	#make
-	clear
+	#clear
 	#./mfserver
