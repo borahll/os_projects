@@ -9,7 +9,6 @@
 
 // Define constants
 #define COUNT 5
-#define MAX_DATALEN 256
 char *semname1 = "/semaphore1";
 char *semname2 = "/semaphore2";
 char *mqname1 = "msgqueue1";
@@ -37,12 +36,17 @@ int main(int argc, char **argv) {
             sprintf(bufptr, "%s-%d", "MessageData", i);
             mf_send(qid, (void *)bufptr, strlen(bufptr) + 1);
         }
+        for (i = 0; i < COUNT; ++i) {
+            mf_recv(qid, (void *)bufptr, MAX_DATALEN);
+            printf("%s\n", bufptr);
+        }
         mf_close(qid);
         mf_disconnect();
         sem_wait(sem2);
         mf_remove(mqname1); // Remove mq
         free(bufptr);
     } else if (ret == 0) {
+        /*
         // Child process - P2
         char *bufptr = (char *)malloc(MAX_DATALEN);
         sem1 = sem_open(semname1, 0);
@@ -58,6 +62,7 @@ int main(int argc, char **argv) {
         mf_disconnect();
         sem_post(sem2);
         free(bufptr);
+         */
     }
 
     // Close and unlink semaphores

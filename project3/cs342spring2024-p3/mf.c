@@ -193,44 +193,41 @@ int parse_config(const char* filename, int* shmem_size) {
 // Utility function to retrieve and remove the first message from the queue
 int retrieve_first_message(MQMetadata* mq, void* bufptr, int bufsize) {
     if (mq->size == 0) {
-        // No messages to retrieve
+        printf("No messages to retrieve: Queue is empty.\n");
         return MF_ERROR;
     }
 
-    // The queue's buffer starts right after the MQMetadata structure in memory
-    char* queueBuffer = ((char*)mq) + sizeof(MQMetadata);
-
-    // Read the size of the first message
+    char* queueBuffer = (char*)shm_start + mq->start_offset;
     unsigned int messageSize;
     memcpy(&messageSize, queueBuffer + mq->head, sizeof(unsigned int));
+    //messageSize /= 1024;
+    printf("Head: %u, Message Size: %u\n", mq->head, messageSize);  // Debug output
 
-    // Check if the provided buffer is large enough
     if (bufsize < messageSize) {
-        printf("Provided buffer is too small for the message.\n");
+        printf("Buffer too small: Needed %u, Provided %d.\n", messageSize, bufsize);
         return MF_ERROR;
     }
 
-    // Calculate the position of the message data
-    unsigned int messageDataPos = mq->head + sizeof(unsigned int);
-    if (messageDataPos >= mq->capacity) {
-        // Wrap around if necessary
-        messageDataPos -= mq->capacity;
+    unsigned int messageDataPos = (mq->head + sizeof(unsigned int)) % mq->capacity;
+
+    if (messageDataPos + messageSize <= mq->capacity) {  // No wrap-around for message data
+        memcpy(bufptr, queueBuffer + messageDataPos, messageSize);
+    } else {  // Message data wraps around
+        int firstPartSize = mq->capacity - messageDataPos;
+        memcpy(bufptr, queueBuffer + messageDataPos, firstPartSize);
+        memcpy((char*)bufptr + firstPartSize, queueBuffer, messageSize - firstPartSize);
     }
 
-    // Copy the message to the provided buffer
-    memcpy(bufptr, queueBuffer + messageDataPos, messageSize);
+    mq->head = (mq->head + sizeof(unsigned int) + messageSize) % mq->capacity;
+    mq->size -= sizeof(unsigned int) + messageSize;
 
-    // Update the head pointer and the queue size
-    unsigned int newHead = mq->head + sizeof(unsigned int) + messageSize;
-    if (newHead >= mq->capacity) {
-        // Wrap around if the new head exceeds the queue capacity
-        newHead -= mq->capacity;
-    }
-    mq->head = newHead;
-    mq->size -= (sizeof(unsigned int) + messageSize); // Update size to reflect the removal
-
-    return messageSize; // Return the size of the message retrieved
+    printf("Message retrieved: New head %u, Remaining size %u.\n", mq->head, mq->size);
+    return messageSize;
 }
+
+
+
+
 
 // HELPER Utility function to generate a semaphore name for a queue
 void generate_semaphore_name(char* dest, const char* mqname, int index) {
@@ -905,10 +902,24 @@ int mf_send(int qid, void *bufptr, int datalen) {
     printf("mq->start_offset: %u, mq->tail: %u\n", mq->start_offset, mq->tail);
     printf("bufferStart: %p\n", (void*)bufferStart);
     printf("insertionPoint: %p\n", (void*)insertionPoint);
+    printf("isActrive: %d\n", mq->isActive);
     printf("Message sent successfully to queue '%s'.\n", mq->mqname);
 
     for (int i = 0; i < datalen; i++) {
         printf("%02X ", *(unsigned char*)(insertionPoint + sizeof(datalen) + i));
+    }
+    printf("\n");
+    printf("Written messageSize: %u\n", *((unsigned int*)insertionPoint));
+    // After writing the message size and data
+    unsigned int checkSize;
+    memcpy(&checkSize, insertionPoint, sizeof(unsigned int)); // Read back the size
+    if (checkSize != datalen) {
+        printf("Error: Message size written (%u) does not match data length (%d).\n", checkSize, datalen);
+        // Handle the error or add corrective measures
+    }
+    printf("Data written check at %p: ", (void*)insertionPoint);
+    for (int i = 0; i < datalen; i++) {
+        printf("%02X ", *(unsigned char*)(insertionPoint + sizeof(unsigned int) + i));
     }
     printf("\n");
 
@@ -965,37 +976,33 @@ int mf_recv(int qid, void* bufptr, int bufsize) {
         return MF_ERROR;
     }
 
-    MQMetadata* mq = &((MQMetadata*)shm_start)[qid];
+    MQMetadata* mq = &((MQMetadata*)mgmt->queues)[qid];
     if (!mq->isActive) {
         printf("Queue identifier does not refer to an active queue.\n");
         return MF_ERROR;
     }
 
-    // Lock the queue for exclusive access
     if (lock_queue(mq) != MF_SUCCESS) {
         printf("Failed to lock the queue.\n");
         return MF_ERROR;
     }
 
-    // Check if the queue has messages
     if (mq->size == 0) {
         printf("The queue is empty.\n");
         unlock_queue(mq);
         return MF_ERROR;
     }
 
-    // Assume retrieve_first_message handles reading and updating the queue's metadata
     int messageSize = retrieve_first_message(mq, bufptr, bufsize);
     if (messageSize <= 0) {
         printf("Failed to retrieve a message from the queue '%s'.\n", mq->mqname);
-        unlock_queue(mq); // Ensure to unlock the queue before returning
+        unlock_queue(mq);
         return MF_ERROR;
     }
 
-    printf("Message retrieved successfully from queue '%s'.\n", mq->mqname);
-
-    // Unlock the queue after operation
+    printf("Message retrieved successfully from queue '%s'. Size: %d bytes.\n", mq->mqname, messageSize);
     unlock_queue(mq);
 
     return messageSize;
 }
+
