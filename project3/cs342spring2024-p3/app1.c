@@ -34,6 +34,7 @@ int main(int argc, char **argv) {
 
         for (i = 0; i < COUNT; ++i) {
             sprintf(bufptr, "%s-%d", "MessageData", i);
+            printf("strlen: %lu \n", strlen(bufptr));
             mf_send(qid, (void *)bufptr, strlen(bufptr) + 1);
         }
         for (i = 0; i < COUNT; ++i) {

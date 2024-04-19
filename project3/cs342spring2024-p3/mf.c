@@ -202,28 +202,26 @@ int retrieve_first_message(MQMetadata* mq, void* bufptr, int bufsize) {
     memcpy(&messageSize, queueBuffer + mq->head, sizeof(unsigned int));
     //messageSize /= 1024;
     printf("Head: %u, Message Size: %u\n", mq->head, messageSize);  // Debug output
-
     if (bufsize < messageSize) {
         printf("Buffer too small: Needed %u, Provided %d.\n", messageSize, bufsize);
         return MF_ERROR;
     }
 
-    unsigned int messageDataPos = (mq->head + sizeof(unsigned int)) % mq->capacity;
-
-    if (messageDataPos + messageSize <= mq->capacity) {  // No wrap-around for message data
-        memcpy(bufptr, queueBuffer + messageDataPos, messageSize);
-    } else {  // Message data wraps around
-        int firstPartSize = mq->capacity - messageDataPos;
+    unsigned int messageDataPos = mq->head + sizeof(unsigned int);
+    if (messageDataPos + messageSize > mq->capacity * 1024) { // Wrap around check
+        int firstPartSize = mq->capacity * 1024 - messageDataPos;
         memcpy(bufptr, queueBuffer + messageDataPos, firstPartSize);
         memcpy((char*)bufptr + firstPartSize, queueBuffer, messageSize - firstPartSize);
+    } else {
+        memcpy(bufptr, queueBuffer + messageDataPos, messageSize);
     }
 
-    mq->head = (mq->head + sizeof(unsigned int) + messageSize) % mq->capacity;
-    mq->size -= sizeof(unsigned int) + messageSize;
-
+    mq->head = (mq->head + sizeof(unsigned int) + messageSize) % (mq->capacity * 1024);
+    mq->size -= (sizeof(unsigned int) + messageSize);
     printf("Message retrieved: New head %u, Remaining size %u.\n", mq->head, mq->size);
     return messageSize;
 }
+
 
 
 
@@ -873,9 +871,10 @@ int mf_send(int qid, void *bufptr, int datalen) {
         return MF_ERROR;
     }
 
-    unsigned int totalDataLength = datalen + sizeof(unsigned int);
-    if (mq->capacity - mq->size < totalDataLength/1024) {
-        printf("Not enough space in the queue to send the message.\n");
+    // Ensure mq->capacity is in bytes for direct comparison
+    unsigned int totalDataLength = datalen + sizeof(unsigned int); // Total bytes needed
+    if (mq->capacity * 1024 - mq->size < totalDataLength) { // mq->capacity is assumed to be in KB, so convert to bytes
+        printf("Not enough space in the queue to send the message. Needed: %u, Available: %u\n", totalDataLength, (mq->capacity * 1024) - mq->size);
         return MF_ERROR;
     }
 
@@ -884,20 +883,21 @@ int mf_send(int qid, void *bufptr, int datalen) {
         return MF_ERROR;
     }
 
-    // Use start_offset to find the buffer start
+    // Calculation of the insertion point
     char* bufferStart = (char*)shm_start + mq->start_offset;
     char* insertionPoint = bufferStart + mq->tail;
 
+    *((unsigned int*)insertionPoint) = datalen; // Writing the message size
+    memcpy(insertionPoint + sizeof(unsigned int), bufptr, datalen); // Copying the message data
 
-    *((unsigned int*)insertionPoint) = datalen; // Prefix with size
-    memcpy(insertionPoint + sizeof(unsigned int), bufptr, datalen); // Copy message
-
-    mq->tail = (mq->tail + totalDataLength) % mq->capacity; // Advance tail, wrap if necessary
-    mq->size += totalDataLength; // Update current size
+    mq->tail = (mq->tail + totalDataLength) % (mq->capacity * 1024); // Update tail, ensure capacity is in bytes
+    mq->size += totalDataLength; // Update the size used in the queue
 
     if (unlock_queue(mq) != MF_SUCCESS) {
         printf("Failed to unlock the queue.\n");
     }
+
+    printf("Message sent successfully to queue '%s'.\n", mq->mqname);
     printf("shm_start: %p\n", shm_start);
     printf("mq->start_offset: %u, mq->tail: %u\n", mq->start_offset, mq->tail);
     printf("bufferStart: %p\n", (void*)bufferStart);
@@ -910,12 +910,12 @@ int mf_send(int qid, void *bufptr, int datalen) {
     }
     printf("\n");
     printf("Written messageSize: %u\n", *((unsigned int*)insertionPoint));
-    // After writing the message size and data
+// After writing the message size and data
     unsigned int checkSize;
     memcpy(&checkSize, insertionPoint, sizeof(unsigned int)); // Read back the size
     if (checkSize != datalen) {
         printf("Error: Message size written (%u) does not match data length (%d).\n", checkSize, datalen);
-        // Handle the error or add corrective measures
+// Handle the error or add corrective measures
     }
     printf("Data written check at %p: ", (void*)insertionPoint);
     for (int i = 0; i < datalen; i++) {
@@ -925,8 +925,8 @@ int mf_send(int qid, void *bufptr, int datalen) {
 
     printf("\033[0;32m pass 8 quid: %d, mq_name: %s, mq_capacity: %d, totalDataLen: %d, mq_size: %d, insertion_point: %s mq_tail: %d\033[0m\n", qid, mq->mqname, mq->capacity, totalDataLength, mq->size, insertionPoint, mq->tail);
     return MF_SUCCESS;
+    return MF_SUCCESS;
 }
-
 
 
 // Utility function to print a preview of a message's content
