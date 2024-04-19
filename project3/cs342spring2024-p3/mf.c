@@ -1,7 +1,8 @@
 /**
  *
- * TODO: initialize the general semaphore name  mf_init, fetch the generated sem name from the computer. This way we do not need to use a shm for sem name
  * TODO: put the management section and ActiveProcessList into the shm.
+ * general semaphore name: mf_global_management_sem_c583b0f3-addc-4567-8f1a-d4b544c30076
+ * my shared memory name : /sharedmemoryname-236545af-f246-4f96-abd8-3d4f6a3befa7
  */
 
 
@@ -343,6 +344,12 @@ int mf_init() {
         shm_unlink(config.shmem_name);
         return MF_ERROR;
     }
+    int fd2 = shm_open("/sharedmemoryname-236545af-f246-4f96-abd8-3d4f6a3befa7", O_CREAT | O_RDWR, 0666);
+    if (fd2 == -1) {
+        perror("sharedmemoryname-236545af-f246-4f96-abd8-3d4f6a3befa7 shm_open failed");
+        return MF_ERROR;
+    }
+
     generate_general_semaphore_name();
     // Mapping the shared memory for access
     shm_start = mmap(NULL, config.shmem_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
@@ -354,6 +361,39 @@ int mf_init() {
     }
 
     close(fd); // Close the file descriptor as it's no longer needed
+
+
+    size_t shm_size = sizeof(ManagementSection) + sizeof(MQMetadata) * (MAX_MQSIZE * 1024 / MAX_DATALEN);
+    if (ftruncate(fd2, shm_size) == -1) {
+        perror("ftruncate failed");
+        close(fd2);
+        shm_unlink("/sharedmemoryname-236545af-f246-4f96-abd8-3d4f6a3befa7");
+        return MF_ERROR;
+    }
+
+    void* shm_ptr = mmap(NULL, shm_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd2, 0);
+    if (shm_ptr == MAP_FAILED) {
+        perror("mmap failed");
+        close(fd2);
+        shm_unlink("/sharedmemoryname-236545af-f246-4f96-abd8-3d4f6a3befa7");
+        return MF_ERROR;
+    }
+
+    ManagementSection* mgmt = (ManagementSection*)shm_ptr;
+    mgmt->queue_count = 0;
+    mgmt->queues = (MQMetadata*)(mgmt + 1);
+
+    for (int i = 0; i < MAX_MQSIZE*1024/MAX_DATALEN; i++) {
+        MQMetadata* queue = &mgmt->queues[i];
+        memset(queue, 0, sizeof(MQMetadata));  // Clear the structure
+        queue->isActive = 0;
+    }
+
+    munmap(shm_ptr, shm_size);  // Detach the memory
+    close(fd2);  // Close file descriptor
+
+    printf("Initialization complete. Shared memory: %s\n", "/sharedmemoryname-236545af-f246-4f96-abd8-3d4f6a3befa7");
+
 
     return MF_SUCCESS;
 }
@@ -430,6 +470,26 @@ int mf_connect() {
         }
     }
 
+
+    int shm_fd2 = shm_open("/sharedmemoryname-236545af-f246-4f96-abd8-3d4f6a3befa7", O_RDWR, 0666);
+    if (shm_fd2 == -1) {
+        perror("shm_open in mf_connect failed");
+        return MF_ERROR;
+    }
+
+    struct stat shm_stat2;
+    if (fstat(shm_fd2, &shm_stat2) == -1) {
+        perror("fstat failed in mf_connect");
+        close(shm_fd2);
+        return MF_ERROR;
+    }
+
+    void* shm_ptr = mmap(NULL, shm_stat2.st_size, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd2, 0);
+    if (shm_ptr == MAP_FAILED) {
+        perror("mmap failed in mf_connect");
+        close(shm_fd2);
+        return MF_ERROR;
+    }
     if (globalSem == SEM_FAILED) {
         perror("Failed to open global management semaphore");
         return MF_ERROR;
@@ -459,10 +519,17 @@ int mf_connect() {
     shm_start = mmap(NULL, config.shmem_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     close(fd); // The file descriptor can be closed after mapping
 
+    mgmt = (ManagementSection*)shm_ptr;
 
-    mgmt = (ManagementSection*)shm_start;
-    //printf("\033[0;32m pass 4.1 \033[0m\n");
+    printf("Connected to shared memory: %s. Active queues: %u\n", "/sharedmemoryname-236545af-f246-4f96-abd8-3d4f6a3befa7", mgmt->queue_count);
 
+    // Now you can access the mgmt and queues array
+    // Example: Check if any queue is active
+    for (int i = 0; i < mgmt->queue_count; i++) {
+        if (mgmt->queues[i].isActive) {
+            printf("Queue %d is active.\n", i);
+        }
+    }
     memset(mgmt, 0, sizeof(ManagementSection)); // Clear the management section to initialize
     //printf("\033[0;32m pass 4.2 \033[0m\n");
 
@@ -478,6 +545,7 @@ int mf_connect() {
     memset(mgmt->queues, 0, config.max_queues_in_shmem * sizeof(MQMetadata));
     // Optionally, initialize semaphores or other synchronization mechanisms here
     // Note: Detailed semaphore initialization for each queue is more contextually appropriate during mf_create
+
     sem_close(globalSem); // Close the handle; the semaphore itself remains in the system
     //printf("\033[0;32m pass 5 \033[0m\n");
 
