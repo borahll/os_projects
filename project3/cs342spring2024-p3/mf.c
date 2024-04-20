@@ -288,40 +288,6 @@ int unlock_queue(MQMetadata* queue) {
     return MF_SUCCESS;
 }
 
-int lock_global_management() {
-    sem_t* sem = sem_open(GLOBAL_MANAGEMENT_SEM_NAME, O_CREAT | O_EXCL, 0644, 1);
-    if (sem == SEM_FAILED) {
-        perror("Global management sem_open failed");
-        return MF_ERROR;
-    }
-
-    if (sem_wait(sem) != 0) {
-        perror("Global management sem_wait failed");
-        sem_close(sem); // Attempt to close even in case of failure
-        return MF_ERROR;
-    }
-
-    sem_close(sem); // Close the semaphore handle
-    return MF_SUCCESS;
-}
-
-int unlock_global_management() {
-    sem_t* sem = sem_open(GLOBAL_MANAGEMENT_SEM_NAME, 0);
-    if (sem == SEM_FAILED) {
-        perror("Global management sem_open failed");
-        return MF_ERROR;
-    }
-
-    if (sem_post(sem) != 0) {
-        perror("Global management sem_post failed");
-        sem_close(sem); // Attempt to close even in case of failure
-        return MF_ERROR;
-    }
-
-    sem_close(sem); // Close the semaphore handle
-    return MF_SUCCESS;
-}
-
 // Remove semaphore for a message queue
 int remove_semaphore_for_queue(MQMetadata* queue) {
     if (sem_unlink(queue->sem_name) != 0) {
@@ -405,9 +371,14 @@ int mf_destroy() {
     }
 
     // Optionally lock the global management structure if concurrent access is possible
-    if (lock_global_management() != MF_SUCCESS) {
-        fprintf(stderr, "Failed to lock global management for destruction.\n");
-        // Decide if failure to lock should abort the destruction process
+    sem_t* globalSem = sem_open(GLOBAL_MANAGEMENT_SEM_NAME, O_CREAT | O_EXCL, 0644, 1);
+    if (globalSem == SEM_FAILED) {
+        if (errno == EEXIST) {
+            globalSem = sem_open(GLOBAL_MANAGEMENT_SEM_NAME, 0); // Open existing semaphore
+        } else {
+            perror("Failed to create global management semaphore");
+            return MF_ERROR;
+        }
     }
 
     mgmt = (ManagementSection*)shm_start;
@@ -446,7 +417,7 @@ int mf_destroy() {
     shm_start = NULL; // Reset the global pointer
 
     // Optionally unlock the global management structure if it was locked
-    unlock_global_management();
+    sem_close(globalSem);
 
     return MF_SUCCESS;
 }
@@ -616,9 +587,14 @@ int mf_disconnect() {
     int pid = getpid(); // Use appropriate method to get the current process's ID
 
     // Lock the global management structure to safely update the list of active processes
-    if (lock_global_management() != MF_SUCCESS) {
-        printf("Failed to lock global management for disconnect.\n");
-        return MF_ERROR;
+    sem_t* globalSem = sem_open(GLOBAL_MANAGEMENT_SEM_NAME, O_CREAT | O_EXCL, 0644, 1);
+    if (globalSem == SEM_FAILED) {
+        if (errno == EEXIST) {
+            globalSem = sem_open(GLOBAL_MANAGEMENT_SEM_NAME, 0); // Open existing semaphore
+        } else {
+            perror("Failed to create global management semaphore");
+            return MF_ERROR;
+        }
     }
 
     // Update the list of active processes to remove the current process
@@ -633,10 +609,8 @@ int mf_disconnect() {
     // close_open_queues_for_process(current_process_id); // Hypothetical function
 
     // Unlock the global management structure after updates
-    if (unlock_global_management() != MF_SUCCESS) {
-        printf("Failed to unlock global management after disconnect.\n");
-        // Continue with disconnect even if unlocking fails
-    }
+    sem_close(globalSem); // Close the handle; the semaphore itself remains in the system
+
 
     // Unmap the shared memory object from the process's address space
     if (munmap(shm_context.ptr, shm_context.size) == -1) {
@@ -756,10 +730,15 @@ int mf_remove(char *mqname) {
         return MF_ERROR;
     }
 
-    // Lock global management structure here
-    if (lock_global_management() != MF_SUCCESS) {
-        printf("Failed to lock global management for queue removal.\n");
-        return MF_ERROR;
+    // Lock the global management structure to safely update the list of active processes
+    sem_t* globalSem = sem_open(GLOBAL_MANAGEMENT_SEM_NAME, O_CREAT | O_EXCL, 0644, 1);
+    if (globalSem == SEM_FAILED) {
+        if (errno == EEXIST) {
+            globalSem = sem_open(GLOBAL_MANAGEMENT_SEM_NAME, 0); // Open existing semaphore
+        } else {
+            perror("Failed to create global management semaphore");
+            return MF_ERROR;
+        }
     }
 
     MQMetadata* directory = (MQMetadata*)shm_start;
@@ -768,13 +747,13 @@ int mf_remove(char *mqname) {
             // Found the queue to remove
             if (directory[i].referenceCount > 0) {
                 printf("Cannot remove queue '%s' as it is still in use.\n", mqname);
-                unlock_global_management(); // Important to unlock before returning
+                sem_close(globalSem); // Important to unlock before returning
                 return MF_ERROR;
             }
 
             if (lock_queue(&directory[i]) != MF_SUCCESS) {
                 printf("Failed to lock message queue '%s' for removal.\n", mqname);
-                unlock_global_management(); // Unlock global management before returning
+                sem_close(globalSem);  // Unlock global management before returning
                 return MF_ERROR;
             }
 
@@ -788,12 +767,12 @@ int mf_remove(char *mqname) {
 
             unlock_queue(&directory[i]); // Proceed to unlock even if semaphore removal failed
 
-            unlock_global_management(); // Unlock global management after operation
+            sem_close(globalSem);  // Unlock global management after operation
             return MF_SUCCESS;
         }
     }
 
-    unlock_global_management(); // Ensure to unlock global management if queue not found
+    sem_close(globalSem);  // Ensure to unlock global management if queue not found
     printf("Message queue '%s' not found.\n", mqname);
     return MF_ERROR;
 }
