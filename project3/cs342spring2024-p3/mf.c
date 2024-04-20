@@ -1,28 +1,37 @@
-#include <stdint.h>
+/*
+ * Includes of the mf.c
+ */
 #include <stdio.h>
-#include <stdlib.h>
 #include <unistd.h>
 #include <malloc.h>
-#include <assert.h>
 #include <string.h>
 #include <errno.h>
 #include <ctype.h>
 #include "mf.h"
-#include <time.h>
 #include <sys/mman.h>
-#include <unistd.h>
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <semaphore.h>
+/*
+ * Defines of the mf.c
+ */
 #define GLOBAL_MANAGEMENT_SEM_NAME_PREFIX "/mf_global_management_sem"
 #define SEM_NAME_PREFIX "/mf_sem_"
 #define MAX_SEM_NAME_SIZE 64
 #define MF_SUCCESS 0
 #define MF_ERROR -1
 #define INITIAL_CAPACITY 10
-
 char GLOBAL_MANAGEMENT_SEM_NAME[MAX_SEM_NAME_SIZE];
 
+/*
+ * This structure, MFConfig, describes the configuration descriptor of the framework.
+ * It includes the parameters for configuring shared memory and message queue behavior.
+ * The shmem_name field will be the name of the shared memory segment. The name is relevant in the correct mapping and access of the shared memory by processes.
+ * The field shmem_size indicates the shared memory segment size in kilobytes to hold a specific amount of data.
+ * With the max_msgs_in_queue field, this will set the maximum number of messages that any single queue can handle and manage its capacity effectively.
+ * Finally, max_queues_in_shmem sets the maximum number of different message queues that can exist simultaneously in shared memory.
+ * This would allow, in the same shared memory segment, a facility to support multiple distinct communication channels.
+ */
 typedef struct {
     char shmem_name[MAX_MQNAMESIZE];
     int shmem_size;       // In KB
@@ -31,6 +40,12 @@ typedef struct {
 } MFConfig;
 MFConfig config;
 
+
+/*
+ * The structure ActiveProcessList represents a list of active processes within a system. It contains an array of ActiveProcess structures, one for each active process.
+ * Currently, the only identifier defined for ActiveProcess is a pid_t process ID. The ActiveProcessList structure should have three prominent members.
+ * It should have the array processes of ActiveProcess structures, which shall be responsible for holding the details of every active process.
+ */
 typedef struct {
     pid_t process_id;
 } ActiveProcess;
@@ -294,7 +309,6 @@ int mf_destroy() {
         fprintf(stderr, "Shared memory is not initialized.\n");
         return MF_ERROR;
     }
-
     sem_t* globalSem = sem_open(GLOBAL_MANAGEMENT_SEM_NAME, O_CREAT | O_EXCL, 0644, 1);
     if (globalSem == SEM_FAILED) {
         if (errno == EEXIST) {
@@ -304,7 +318,6 @@ int mf_destroy() {
             return MF_ERROR;
         }
     }
-
     mgmt = (ManagementSection*)shm_start;
     for (int i = 0; i < mgmt->queue_count; i++) {
         MQMetadata* queue = &mgmt->queues[i];
