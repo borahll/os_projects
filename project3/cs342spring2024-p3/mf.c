@@ -6,7 +6,7 @@
  */
 
 
-
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -47,7 +47,7 @@ typedef struct {
 } ActiveProcess;
 
 typedef struct {
-    ActiveProcess* processes; // Dynamic array of active processes
+    ActiveProcess processes[MAX_SHMEMSIZE]; // Dynamic array of active processes
     size_t size;              // Current number of active processes
     size_t capacity;          // Current capacity of the array
 } ActiveProcessList;
@@ -66,7 +66,7 @@ typedef struct {
 } MQMetadata;
 
 typedef struct {
-    MQMetadata* queues; // Metadata for each queue
+    MQMetadata queues[MAX_SHMEMSIZE / MIN_MQSIZE]; // Metadata for each queue
     unsigned int queue_count; // Total number of active queues
 } ManagementSection;
 ManagementSection* mgmt;
@@ -123,7 +123,7 @@ int read_configuration(const char* filename, MFConfig* config) {
 }
 
 void initActiveProcessList() {
-    activeProcessList.processes = (ActiveProcess*)malloc(INITIAL_CAPACITY * sizeof(ActiveProcess));
+    //activeProcessList.processes = (ActiveProcess*)malloc(INITIAL_CAPACITY * sizeof(ActiveProcess));
     if (activeProcessList.processes == NULL) {
         perror("Failed to allocate activeProcessList");
         exit(EXIT_FAILURE);
@@ -133,14 +133,16 @@ void initActiveProcessList() {
 }
 
 void resizeActiveProcessList(size_t new_capacity) {
+    /*
     ActiveProcess* new_array = (ActiveProcess*)realloc(activeProcessList.processes, new_capacity * sizeof(ActiveProcess));
     if (new_array == NULL) {
         perror("Failed to reallocate activeProcessList");
         free(activeProcessList.processes); // Clean up original array
         exit(EXIT_FAILURE);
     }
-    activeProcessList.processes = new_array;
+    //activeProcessList.processes = new_array;
     activeProcessList.capacity = new_capacity;
+    */
 }
 
 void addActiveProcess(pid_t pid) {
@@ -168,7 +170,6 @@ void removeActiveProcess(pid_t pid) {
 
 void freeActiveProcessList() {
     free(activeProcessList.processes);
-    activeProcessList.processes = NULL;
     activeProcessList.size = 0;
     activeProcessList.capacity = 0;
 }
@@ -338,7 +339,7 @@ int mf_init() {
         perror("shm_open failed");
         return MF_ERROR;
     }
-    if (ftruncate(fd, config.shmem_size) == -1) {
+    if (ftruncate(fd, sizeof(ManagementSection)) == -1) {
         perror("ftruncate failed");
         close(fd);
         shm_unlink(config.shmem_name);
@@ -363,7 +364,7 @@ int mf_init() {
     close(fd); // Close the file descriptor as it's no longer needed
 
 
-    size_t shm_size = sizeof(ManagementSection) + sizeof(MQMetadata) * (MAX_MQSIZE * 1024 / MAX_DATALEN);
+    size_t shm_size = sizeof(ManagementSection);
     if (ftruncate(fd2, shm_size) == -1) {
         perror("ftruncate failed");
         close(fd2);
@@ -380,14 +381,8 @@ int mf_init() {
     }
 
     ManagementSection* mgmt = (ManagementSection*)shm_ptr;
+    memset(mgmt, 0, shm_size); // Initialize the entire structure, including the queue array
     mgmt->queue_count = 0;
-    mgmt->queues = (MQMetadata*)(mgmt + 1);
-
-    for (int i = 0; i < MAX_MQSIZE*1024/MAX_DATALEN; i++) {
-        MQMetadata* queue = &mgmt->queues[i];
-        memset(queue, 0, sizeof(MQMetadata));  // Clear the structure
-        queue->isActive = 0;
-    }
 
     munmap(shm_ptr, shm_size);  // Detach the memory
     close(fd2);  // Close file descriptor
@@ -420,11 +415,8 @@ int mf_destroy() {
                 perror("sem_unlink failed for a message queue semaphore");
             }
             queue->referenceCount = 0;
+            queue->isActive = 0; // Mark as inactive
         }
-    }
-    if (mgmt->queues != NULL) {
-        free(mgmt->queues);
-        mgmt->queues = NULL;
     }
     // Ensure all dynamically allocated memory is freed, if any
     freeActiveProcessList(); // Make sure this function properly frees all allocated memory
@@ -469,7 +461,6 @@ int mf_connect() {
             return MF_ERROR;
         }
     }
-
 
     int shm_fd2 = shm_open("/sharedmemoryname-236545af-f246-4f96-abd8-3d4f6a3befa7", O_RDWR, 0666);
     if (shm_fd2 == -1) {
@@ -516,10 +507,10 @@ int mf_connect() {
      */
 
     int fd = shm_open(config.shmem_name, O_RDWR, 0666);
-    shm_start = mmap(NULL, config.shmem_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    shm_start = mmap(NULL, sizeof(ManagementSection), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     close(fd); // The file descriptor can be closed after mapping
 
-    mgmt = (ManagementSection*)shm_ptr;
+    mgmt = (ManagementSection*)shm_start;
 
     printf("Connected to shared memory: %s. Active queues: %u\n", "/sharedmemoryname-236545af-f246-4f96-abd8-3d4f6a3befa7", mgmt->queue_count);
 
@@ -530,10 +521,11 @@ int mf_connect() {
             printf("Queue %d is active.\n", i);
         }
     }
+    /*
     memset(mgmt, 0, sizeof(ManagementSection)); // Clear the management section to initialize
     //printf("\033[0;32m pass 4.2 \033[0m\n");
 
-    mgmt->queues = (MQMetadata*)malloc(config.max_queues_in_shmem * sizeof(MQMetadata));
+    //mgmt->queues = (MQMetadata*)malloc(config.max_queues_in_shmem * sizeof(MQMetadata));
     //printf("\033[0;32m pass 4.3 \033[0m\n");
 
     if (mgmt->queues == NULL) {
@@ -543,6 +535,7 @@ int mf_connect() {
     }
 
     memset(mgmt->queues, 0, config.max_queues_in_shmem * sizeof(MQMetadata));
+     */
     // Optionally, initialize semaphores or other synchronization mechanisms here
     // Note: Detailed semaphore initialization for each queue is more contextually appropriate during mf_create
 
@@ -933,7 +926,7 @@ int mf_send(int qid, void *bufptr, int datalen) {
         return MF_ERROR;
     }
 
-    MQMetadata* mq = &((MQMetadata*)mgmt->queues)[qid];
+    MQMetadata* mq = &mgmt->queues[qid];
     if (!mq->isActive) {
         printf("Queue identifier does not refer to an active queue.\n");
         return MF_ERROR;
@@ -951,7 +944,7 @@ int mf_send(int qid, void *bufptr, int datalen) {
         return MF_ERROR;
     }
 
-    // Calculation of the insertion point
+    // Calculation of the insertion poin
     char* bufferStart = (char*)shm_start + mq->start_offset;
     char* insertionPoint = bufferStart + mq->tail;
 
@@ -1044,7 +1037,7 @@ int mf_recv(int qid, void* bufptr, int bufsize) {
         return MF_ERROR;
     }
 
-    MQMetadata* mq = &((MQMetadata*)mgmt->queues)[qid];
+    MQMetadata* mq = &mgmt->queues[qid];
     if (!mq->isActive) {
         printf("Queue identifier does not refer to an active queue.\n");
         return MF_ERROR;
