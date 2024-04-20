@@ -2,7 +2,7 @@
 CC	:= gcc
 CFLAGS := -g -Wall
 
-TARGETS :=  libmf.a  app1 mfserver
+TARGETS :=  libmf.a  app2 mfserver
 
 # Make sure that 'all' is the first target
 all: $(TARGETS)
@@ -18,11 +18,11 @@ MF_LIB :=  -L. -lrt -lpthread -lmf
 mf.o: mf.c mf.h
 	gcc -c $(CFLAGS) -o $@ mf.c
 
-app1.o: app1.c  mf.c mf.h
-	gcc -c $(CFLAGS)  -o $@ app1.c
+app2.o: app2.c  mf.c mf.h
+	gcc -c $(CFLAGS)  -o $@ app2.c
 
-app1: app1.o libmf.a mf.o
-	gcc $(CFLAGS) -o $@ app1.o $(MF_LIB)
+app2: app2.o libmf.a mf.o
+	gcc $(CFLAGS) -o $@ app2.o $(MF_LIB)
 
 mfserver: mfserver.c  mf.c mf.h
 	gcc -c $(CFLAGS)  -o $@ mfserver.c

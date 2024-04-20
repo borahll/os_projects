@@ -464,12 +464,12 @@ int mf_connect() {
     // Dynamically allocate memory for the number of queues
     // Initialize or clear the allocated memory if necessary
     read_configuration(CONFIG_FILENAME, &config);
-    config.shmem_size *= 1024; // Convert from KB to bytes
+    //config.shmem_size *= 1024; // Convert from KB to bytes
     //printf("\033[0;32m pass 1 \033[0m\n");
     //initActiveProcessList(); //TODO
     //printf("\033[0;32m pass 2 \033[0m\n");
 
-    if (config.shmem_size /1024 < MIN_SHMEMSIZE || config.shmem_size/1024  > MAX_SHMEMSIZE) {
+    if (config.shmem_size < MIN_SHMEMSIZE || config.shmem_size  > MAX_SHMEMSIZE) {
         fprintf(stderr, "Shared memory size in the config file is out of valid range\n");
         return MF_ERROR;
     }
