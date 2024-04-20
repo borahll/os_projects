@@ -58,6 +58,23 @@ typedef struct {
 
 ActiveProcessList* activeProcessList;
 
+
+
+/*
+ * This structure acts as the central administrative entity within a shared memory segment and is used to manage a number of message queues.
+ * Each ManagementSection houses an array of MQMetadata representing the detailed information of a message queue.
+ * To discuss in this context, these queues are allocated statically, based on the calculated maximum queue number that fits into the size of shared memory (MAX_SHMEMSIZE divided by MIN_MQSIZE).
+ * The entire structure of MQMetadata related to each message queue consists of:
+ * mqname: Name of the Message Queue (name);
+ * sem_name: Semaphore name used for synchronizing access;
+ * start_offset: Start byte offset in shared memory;
+ * end_offset: End byte offset in that shared memory for the given queue;
+ * head and tail indices (head, tail) indicating the size of the current queue;
+ * capacity representing the maximum size for a queue;
+ * flags indicating the queue activity state (isActive) and its referencing count by processes (referenceCount).
+ * It is designed to permit more than one process to send and receive messages to each other through a set of shared queues.
+ *
+ */
 typedef struct {
     char mqname[MAX_MQNAMESIZE];
     char sem_name[MAX_SEM_NAME_SIZE];
@@ -123,13 +140,13 @@ int read_configuration(const char* filename, MFConfig* config) {
     return 0;
 }
 
-void resizeActiveProcessList(size_t new_cap) {
+void resizeActiveProcessList() {
     activeProcessList->capacity *= 2;
 }
 void addActiveProcess(pid_t pid) {
     if (activeProcessList->size == activeProcessList->capacity) {
         // Resize the array if necessary
-        resizeActiveProcessList(activeProcessList->capacity * 2);
+        resizeActiveProcessList();
     }
     activeProcessList->processes[activeProcessList->size].process_id = pid;
     activeProcessList->size++;
@@ -153,6 +170,14 @@ void freeActiveProcessList() {
     activeProcessList->size = 0;
     activeProcessList->capacity = 0;
 }
+
+/*
+ * The retrieve_first_message function should retrieve the first message in the given message queue.
+ * The following three parameters exist:
+ * a pointer to the MQMetaData structure for this queue (mq),
+ * a buffer (bufptr) into which the message is to be put,
+ * and the size of this buffer (bufsize).
+ */
 int retrieve_first_message(MQMetadata* mq, void* bufptr, int bufsize) {
     if (mq->size == 0) {
         printf("No messages to retrieve: Queue is empty.\n");
@@ -185,6 +210,11 @@ int retrieve_first_message(MQMetadata* mq, void* bufptr, int bufsize) {
 void generate_semaphore_name(char* dest, const char* mqname, int index) {
     snprintf(dest, MAX_SEM_NAME_SIZE, "%s%s_%d", SEM_NAME_PREFIX, mqname, index);
 }
+/*
+ *
+ * The initialize_semaphore_for_queue function will basically initialize the semaphore for a queue of messages.
+ * It takes two parameters: a pointer to MQMetadata, which represents a queue, and an integer index that uniquely identifies the queue.
+ */
 int initialize_semaphore_for_queue(MQMetadata* queue, int index) {
     char sem_name[MAX_SEM_NAME_SIZE];
     generate_semaphore_name(sem_name, queue->mqname, index);
@@ -204,8 +234,11 @@ int initialize_semaphore_for_queue(MQMetadata* queue, int index) {
 
     return MF_SUCCESS;
 }
-
-// Acquire semaphore for a message queue
+/*
+ *
+ * lock_queue is used to synchronize access to a concrete message queue.
+ * It represents a structure MQMetadata and uses POSIX semaphore synchronization; hence, at a time, the states of the process shouldn't exceed one process.
+ */
 int lock_queue(MQMetadata* queue) {
     sem_t* sem = sem_open(queue->sem_name, 0);
     if (sem == SEM_FAILED) {
@@ -557,11 +590,9 @@ int mf_remove(char *mqname) {
             return MF_ERROR;
         }
     }
-    int queueFound = 0;
     for (int i = 0; i < mgmt->queue_count; i++) {
         MQMetadata* queue = &mgmt->queues[i];
         if (strncmp(queue->mqname, mqname, MAX_MQNAMESIZE) == 0) {
-            queueFound = 1;
             if (queue->referenceCount > 0) {
                 printf("Cannot remove queue '%s' as it is still in use (reference count: %d).\n", mqname, queue->referenceCount);
                 sem_close(globalSem);
@@ -583,9 +614,6 @@ int mf_remove(char *mqname) {
             sem_close(globalSem);
             return MF_SUCCESS;
         }
-    }
-    if (!queueFound) {
-        printf("Message queue '%s' not found.\n", mqname);
     }
     sem_close(globalSem);
     printf("Message queue '%s' not found.\n", mqname);
@@ -706,6 +734,9 @@ int mf_send(int qid, void *bufptr, int datalen) {
     }
     return MF_SUCCESS;
 }
+/*
+ * Helper function for the mf_print method.
+ */
 void print_message_preview(void* message, unsigned int size) {
     printf("Message Size: %u, Preview: ", size);
     for (unsigned int i = 0; i < size && i < 10; ++i) {
