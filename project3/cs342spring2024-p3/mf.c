@@ -734,37 +734,50 @@ int mf_remove(char *mqname) {
         }
     }
 
-    MQMetadata* directory = (MQMetadata*)shm_start;
-    for (int i = 0; i < config.max_queues_in_shmem; i++) { // Use MAX_QUEUES instead of hardcoded value
-        if (strncmp(directory[i].mqname, mqname, MAX_MQNAMESIZE) == 0) {
-            // Found the queue to remove
-            if (directory[i].referenceCount > 0) {
-                printf("Cannot remove queue '%s' as it is still in use.\n", mqname);
-                sem_close(globalSem); // Important to unlock before returning
+    int queueFound = 0;
+    for (int i = 0; i < mgmt->queue_count; i++) {
+        MQMetadata* queue = &mgmt->queues[i];
+        if (strncmp(queue->mqname, mqname, MAX_MQNAMESIZE) == 0) {
+            queueFound = 1;
+            // Check the reference count before attempting removal
+            if (queue->referenceCount > 0) {
+                printf("Cannot remove queue '%s' as it is still in use (reference count: %d).\n", mqname, queue->referenceCount);
+                sem_close(globalSem);
                 return MF_ERROR;
             }
 
-            if (lock_queue(&directory[i]) != MF_SUCCESS) {
+            // Lock the specific queue for modification
+            if (lock_queue(queue) != MF_SUCCESS) {
                 printf("Failed to lock message queue '%s' for removal.\n", mqname);
-                sem_close(globalSem);  // Unlock global management before returning
+                sem_close(globalSem);
                 return MF_ERROR;
             }
 
-            memset(&directory[i], 0, sizeof(MQMetadata)); // Clear the queue metadata
+            // Clear the queue metadata
+            memset(queue, 0, sizeof(MQMetadata));
             printf("Message queue '%s' removed successfully.\n", mqname);
 
-            // It's important to remove the semaphore associated with the queue
-            if (remove_semaphore_for_queue(&directory[i]) != MF_SUCCESS) {
+            // Attempt to remove the semaphore associated with the queue
+            if (remove_semaphore_for_queue(queue) != MF_SUCCESS) {
                 printf("Failed to remove semaphore for queue '%s'.\n", mqname);
             }
 
-            unlock_queue(&directory[i]); // Proceed to unlock even if semaphore removal failed
+            // Mark the queue as inactive
+            queue->isActive = 0;
 
-            sem_close(globalSem);  // Unlock global management after operation
+            unlock_queue(queue); // Unlock the specific queue
+
+            // Decrement the queue count
+            mgmt->queue_count--;
+
+            sem_close(globalSem);
             return MF_SUCCESS;
         }
     }
 
+    if (!queueFound) {
+        printf("Message queue '%s' not found.\n", mqname);
+    }
     sem_close(globalSem);  // Ensure to unlock global management if queue not found
     printf("Message queue '%s' not found.\n", mqname);
     return MF_ERROR;
