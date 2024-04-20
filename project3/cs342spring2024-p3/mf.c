@@ -611,13 +611,6 @@ int mf_disconnect() {
     // Unlock the global management structure after updates
     sem_close(globalSem); // Close the handle; the semaphore itself remains in the system
 
-
-    // Unmap the shared memory object from the process's address space
-    if (munmap(shm_context.ptr, shm_context.size) == -1) {
-        perror("munmap failed in mf_disconnect");
-        return MF_ERROR;
-    }
-
     // Optionally reset the shm_context to prevent reuse
     shm_context.ptr = NULL;
     shm_context.size = 0;
@@ -858,23 +851,16 @@ int mf_close(int qid) {
         return MF_ERROR;
     }
 
-    // Properly deactivate the queue and clear its metadata
-    queue->isActive = 0;
-    memset(queue->mqname, 0, MAX_MQNAMESIZE); // Clear the queue name
-    queue->head = 0;
-    queue->tail = 0;
-    queue->size = 0;
-    queue->referenceCount = queue->referenceCount == 0 ? 0 : queue->referenceCount--;
-    // Remove the semaphore associated with the queue
-    if (remove_semaphore_for_queue(queue) != MF_SUCCESS) {
-        printf("Failed to remove the semaphore for queue '%s'.\n", queue->mqname);
-        // Attempt to unlock the queue before returning with error
-        unlock_queue(queue);
-        return MF_ERROR;
+    // Decrement the reference count
+    if (queue->referenceCount > 0) {
+        queue->referenceCount--;
+
+        // Check if the queue should be deactivated
+        if (queue->referenceCount == 0) {
+            queue->isActive = 0;
+            printf("Queue '%s' is now inactive as no more references exist.\n", queue->mqname);
+        }
     }
-
-    printf("Message queue '%s' closed successfully.\n", queue->mqname);
-
     // Unlock the queue after operation
     if (unlock_queue(queue) != MF_SUCCESS) {
         printf("Warning: Failed to unlock the queue. This might lead to deadlocks.\n");
