@@ -1,2 +1,4 @@
-# cs342spring2024-p3
-cs342 project 3 
+Operating Systems - CS342
+PROJECT 3 Report
+Bora Halloğlu 22101852
+Atilla Emre Söylemez 22103189
