@@ -3,7 +3,6 @@
  */
 #include <stdio.h>
 #include <unistd.h>
-#include <malloc.h>
 #include <string.h>
 #include <errno.h>
 #include <ctype.h>
@@ -165,12 +164,6 @@ void removeActiveProcess(pid_t pid) {
     printf("Process %d not found in active process list.\n", pid);
 }
 
-void freeActiveProcessList() {
-    free(activeProcessList->processes);
-    activeProcessList->size = 0;
-    activeProcessList->capacity = 0;
-}
-
 /*
  * The retrieve_first_message function should retrieve the first message in the given message queue.
  * The following three parameters exist:
@@ -305,7 +298,14 @@ int mf_init() {
 
     close(fd);
 
+    /*
+     *     int fd3 = shm_open("/sharedmemoryname-236545af-f246-4f96-abd8-3d4f6a3befa7", O_RDWR, 0666);
+    void* shm_start3 = mmap(NULL, sizeof(ActiveProcessList), PROT_READ | PROT_WRITE, MAP_SHARED, fd3, 0);
+    close(fd3);
 
+    mgmt = (ManagementSection*)shm_start;
+    activeProcessList = (ActiveProcessList*)shm_start3;
+     */
     size_t shm_size = sizeof(ActiveProcessList);
     if (ftruncate(fd2, shm_size) == -1) {
         perror("ftruncate failed");
@@ -362,7 +362,6 @@ int mf_destroy() {
             queue->isActive = 0;
         }
     }
-    freeActiveProcessList();
     if (munmap(shm_start, config.shmem_size) == -1) {
         perror("munmap failed");
         return MF_ERROR;
@@ -376,7 +375,7 @@ int mf_destroy() {
     }
     shm_start = NULL;
     sem_close(globalSem);
-
+    printf("Cleanup Successful\n");
     return MF_SUCCESS;
 }
 
