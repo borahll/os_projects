@@ -52,7 +52,7 @@ typedef struct {
     size_t capacity;          // Current capacity of the array
 } ActiveProcessList;
 
-ActiveProcessList activeProcessList = {NULL, 0, 0};
+ActiveProcessList* activeProcessList;
 
 typedef struct {
     char mqname[MAX_MQNAMESIZE];
@@ -123,13 +123,13 @@ int read_configuration(const char* filename, MFConfig* config) {
 }
 
 void initActiveProcessList() {
-    //activeProcessList.processes = (ActiveProcess*)malloc(INITIAL_CAPACITY * sizeof(ActiveProcess));
-    if (activeProcessList.processes == NULL) {
+    //activeProcessList->processes = (ActiveProcess*)malloc(INITIAL_CAPACITY * sizeof(ActiveProcess));
+    if (activeProcessList->processes == NULL) {
         perror("Failed to allocate activeProcessList");
         exit(EXIT_FAILURE);
     }
-    activeProcessList.size = 0;
-    activeProcessList.capacity = INITIAL_CAPACITY;
+    activeProcessList->size = 0;
+    activeProcessList->capacity = INITIAL_CAPACITY;
 }
 
 void resizeActiveProcessList(size_t new_capacity) {
@@ -143,25 +143,26 @@ void resizeActiveProcessList(size_t new_capacity) {
     //activeProcessList.processes = new_array;
     activeProcessList.capacity = new_capacity;
     */
+    activeProcessList->capacity *= 2;
 }
 
 void addActiveProcess(pid_t pid) {
-    if (activeProcessList.size == activeProcessList.capacity) {
+    if (activeProcessList->size == activeProcessList->capacity) {
         // Resize the array if necessary
-        resizeActiveProcessList(activeProcessList.capacity * 2);
+        resizeActiveProcessList(activeProcessList->capacity * 2);
     }
-    activeProcessList.processes[activeProcessList.size].process_id = pid;
-    activeProcessList.size++;
+    activeProcessList->processes[activeProcessList->size].process_id = pid;
+    activeProcessList->size++;
 }
 
 void removeActiveProcess(pid_t pid) {
-    for (size_t i = 0; i < activeProcessList.size; i++) {
-        if (activeProcessList.processes[i].process_id == pid) {
+    for (size_t i = 0; i < activeProcessList->size; i++) {
+        if (activeProcessList->processes[i].process_id == pid) {
             // Shift elements down to fill the gap
-            for (size_t j = i; j < activeProcessList.size - 1; j++) {
-                activeProcessList.processes[j] = activeProcessList.processes[j + 1];
+            for (size_t j = i; j < activeProcessList->size - 1; j++) {
+                activeProcessList->processes[j] = activeProcessList->processes[j + 1];
             }
-            activeProcessList.size--;
+            activeProcessList->size--;
             return;
         }
     }
@@ -169,9 +170,9 @@ void removeActiveProcess(pid_t pid) {
 }
 
 void freeActiveProcessList() {
-    free(activeProcessList.processes);
-    activeProcessList.size = 0;
-    activeProcessList.capacity = 0;
+    free(activeProcessList->processes);
+    activeProcessList->size = 0;
+    activeProcessList->capacity = 0;
 }
 /*
 int parse_config(const char* filename, int* shmem_size) {
@@ -353,7 +354,7 @@ int mf_init() {
 
     generate_general_semaphore_name();
     // Mapping the shared memory for access
-    shm_start = mmap(NULL, config.shmem_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    shm_start = mmap(NULL, sizeof(ManagementSection), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     if (shm_start == MAP_FAILED) {
         perror("mmap failed");
         close(fd);
@@ -364,7 +365,7 @@ int mf_init() {
     close(fd); // Close the file descriptor as it's no longer needed
 
 
-    size_t shm_size = sizeof(ManagementSection);
+    size_t shm_size = sizeof(ActiveProcessList);
     if (ftruncate(fd2, shm_size) == -1) {
         perror("ftruncate failed");
         close(fd2);
@@ -380,7 +381,11 @@ int mf_init() {
         return MF_ERROR;
     }
 
-    ManagementSection* mgmt = (ManagementSection*)shm_ptr;
+    activeProcessList = (ActiveProcessList*) shm_ptr;
+    activeProcessList->size = 0;
+    activeProcessList->capacity = INITIAL_CAPACITY;
+
+    ManagementSection* mgmt = (ManagementSection*)shm_start;
     memset(mgmt, 0, shm_size); // Initialize the entire structure, including the queue array
     mgmt->queue_count = 0;
 
@@ -490,7 +495,7 @@ int mf_connect() {
     read_configuration(CONFIG_FILENAME, &config);
     config.shmem_size *= 1024; // Convert from KB to bytes
     //printf("\033[0;32m pass 1 \033[0m\n");
-    initActiveProcessList(); //TODO
+    //initActiveProcessList(); //TODO
     //printf("\033[0;32m pass 2 \033[0m\n");
 
     if (config.shmem_size /1024 < MIN_SHMEMSIZE || config.shmem_size/1024  > MAX_SHMEMSIZE) {
@@ -510,7 +515,13 @@ int mf_connect() {
     shm_start = mmap(NULL, sizeof(ManagementSection), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     close(fd); // The file descriptor can be closed after mapping
 
+
+    int fd3 = shm_open("/sharedmemoryname-236545af-f246-4f96-abd8-3d4f6a3befa7", O_RDWR, 0666);
+    void* shm_start3 = mmap(NULL, sizeof(ActiveProcessList), PROT_READ | PROT_WRITE, MAP_SHARED, fd3, 0);
+    close(fd3); // The file descriptor can be closed after mapping
+
     mgmt = (ManagementSection*)shm_start;
+    activeProcessList = (ActiveProcessList*)shm_start3;
 
     printf("Connected to shared memory: %s. Active queues: %u\n", "/sharedmemoryname-236545af-f246-4f96-abd8-3d4f6a3befa7", mgmt->queue_count);
 
