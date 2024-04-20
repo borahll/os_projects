@@ -9,8 +9,8 @@
 void sig_handler(int signo) {
     if (signo == SIGINT || signo == SIGTERM) {
         printf("Received termination signal. Cleaning up...\n");
-        mf_destroy(); // Call mf_destroy to clean up resources
-        exit(signo); // Exit with the received signal number
+        mf_destroy();
+        exit(signo);
     }
 }
 
