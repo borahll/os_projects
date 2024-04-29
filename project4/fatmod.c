@@ -467,35 +467,29 @@ void clearCluster(int fd, unsigned int cluster) {
     writesector(fd, zeroBuffer, sector + 1);
 }
 
-int readsector(int fd, unsigned char *buf, unsigned int snum) {
-    off_t offset = (off_t)snum * SECTORSIZE;  // Calculate the byte offset from the sector number
-    if (lseek(fd, offset, SEEK_SET) == (off_t)-1) {
-        perror("Error seeking to sector");
-        return -1;  // Return -1 on seeking error
-    }
-
-    ssize_t bytesRead = read(fd, buf, SECTORSIZE);
-    if (bytesRead == SECTORSIZE) {
-        return 0;  // Successfully read the sector
-    } else {
-        perror("Error reading sector");
-        return -1;  // Return -1 on read error
-    }
+int readsector (int fd, unsigned char *buf, uint snum){
+    off_t offset;
+    int n;
+    offset = snum * SECTORSIZE;
+    lseek (fd, offset, SEEK_SET);
+    n = read (fd, buf, SECTORSIZE);
+    if (n == SECTORSIZE)
+        return (0);
+    else
+        return (-1); // error
+    return (0);
 }
-
-int writesector(int fd, unsigned char *buf, unsigned int snum) {
-    off_t offset = (off_t)snum * SECTORSIZE;  // Calculate the byte offset from the sector number
-    if (lseek(fd, offset, SEEK_SET) == (off_t)-1) {
-        perror("Error seeking to sector");
-        return -1;  // Return -1 on seeking error
-    }
-
-    ssize_t bytesWritten = write(fd, buf, SECTORSIZE);
-    if (bytesWritten == SECTORSIZE) {
-        fsync(fd);  // Force the changes to disk immediately
-        return 0;  // Successfully wrote the sector
-    } else {
-        perror("Error writing sector");
-        return -1;  // Return -1 on write error
-    }
+int writesector (int fd, unsigned char *buf, uint snum)
+{
+    off_t offset;
+    int n;
+    offset = snum * SECTORSIZE;
+    lseek (fd, offset, SEEK_SET);
+    n = write (fd, buf, SECTORSIZE);
+    fsync (fd); // enforce output immediately to disk
+    if (n == SECTORSIZE)
+        return (0);
+    else
+        return (-1); // error
+    return (0);
 }
