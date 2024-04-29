@@ -34,8 +34,8 @@ struct dir_entry {
     unsigned int fileSize;     // File size in bytes
 };
 
-int readsector(int fd, unsigned char *buf, unsigned int snum);
-int writesector(int fd, unsigned char *buf, unsigned int snum);
+int readsector (int fd, unsigned char *buf, uint snum);
+int writesector (int fd, unsigned char *buf, uint snum);
 void ListFiles(int fd);
 unsigned int getNextCluster(int fd, unsigned int currentCluster);
 void DisplayFileASCII(int fd, const char *filename);
