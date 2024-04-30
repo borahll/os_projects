@@ -48,22 +48,66 @@ void clearCluster(int fd, unsigned int cluster);
 unsigned int allocateNewCluster(int fd);
 
 int main(int argc, char *argv[]) {
-    if (argc < 2) {
-        printf("Usage: %s <disk_image>\n", argv[0]);
+    if (argc < 3) {
+        fprintf(stderr, "Usage: %s <disk_image> <command> [options]\n", argv[0]);
         return 1;
     }
 
-    char diskname[128];
-    int fd;
-    strcpy(diskname, argv[1]);
+    const char* diskImage = argv[1];
+    const char* command = argv[2];
 
-    fd = open(diskname, O_SYNC | O_RDWR);
-    if (fd < 0) {
-        perror("Could not open disk image");
+    int fd = open(diskImage, O_RDWR | O_SYNC);
+    if (fd == -1) {
+        perror("Failed to open disk image");
         return 1;
     }
 
-    ListFiles(fd);
+    if (strcmp(command, "-l") == 0) {
+        ListFiles(fd);
+    } else if (strcmp(command, "-ra") == 0) {
+        if (argc < 4) {
+            fprintf(stderr, "Usage: %s <disk_image> -ra <filename>\n", argv[0]);
+            close(fd);
+            return 1;
+        }
+        DisplayFileASCII(fd, argv[3]);
+    } else if (strcmp(command, "-rb") == 0) {
+        if (argc < 4) {
+            fprintf(stderr, "Usage: %s <disk_image> -rb <filename>\n", argv[0]);
+            close(fd);
+            return 1;
+        }
+        DisplayFileBinary(fd, argv[3]);
+    } else if (strcmp(command, "-c") == 0) {
+        if (argc < 4) {
+            fprintf(stderr, "Usage: %s <disk_image> -c <filename>\n", argv[0]);
+            close(fd);
+            return 1;
+        }
+        CreateFile(fd, argv[3]);
+    } else if (strcmp(command, "-d") == 0) {
+        if (argc < 4) {
+            fprintf(stderr, "Usage: %s <disk_image> -d <filename>\n", argv[0]);
+            close(fd);
+            return 1;
+        }
+        DeleteFile(fd, argv[3]);
+    } else if (strcmp(command, "-w") == 0) {
+        if (argc < 7) {
+            fprintf(stderr, "Usage: %s <disk_image> -w <filename> <offset> <length> <byte>\n", argv[0]);
+            close(fd);
+            return 1;
+        }
+        const char* filename = argv[3];
+        unsigned int offset = (unsigned int)strtoul(argv[4], NULL, 10);
+        unsigned int length = (unsigned int)strtoul(argv[5], NULL, 10);
+        unsigned char byte = (unsigned char)strtoul(argv[6], NULL, 10);
+        WriteDataToFile(fd, filename, offset, length, byte);
+    } else {
+        fprintf(stderr, "Unknown command\n");
+        close(fd);
+        return 1;
+    }
 
     close(fd);
     return 0;
