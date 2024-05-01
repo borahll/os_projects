@@ -17,9 +17,14 @@
 #define SECTORSIZE 512   // bytes
 #define CLUSTERSIZE 1024 // bytes
 #define ROOTDIR_START_CLUSTER 2 // Typical start cluster of root directory
+// Specific FAT32 Constants
+#define RESERVED_SECTORS 32    // Number of reserved sectors
+#define ATTR_ARCHIVE 0x20      // File modified/archive attribute
+#define ATTR_DIRECTORY 0x10    // Directory attribute
+#define ATTR_VOLUME_ID 0x08    // Volume ID attribute
 
 // Define the structure of a directory entry as seen in FAT32
-struct dir_entry {
+struct __attribute__((packed)) dir_entry {
     unsigned char name[11];    // File name + extension
     unsigned char attr;        // File attributes
     unsigned char ntres;       // Reserved for use by Windows NT
@@ -37,7 +42,7 @@ struct dir_entry {
 int readsector (int fd, unsigned char *buf, uint snum);
 int writesector (int fd, unsigned char *buf, uint snum);
 void ListFiles(int fd);
-unsigned int getNextCluster(int fd, unsigned int currentCluster);
+unsigned int getNextCluster(int fd, unsigned int currentCluster, unsigned char *fatSector);
 void DisplayFileASCII(int fd, const char *filename);
 void DisplayFileBinary(int fd, const char *filename);
 void CreateFile(int fd, const char *filename);
@@ -156,15 +161,11 @@ void ListFiles(int fd) {
     } while (nextCluster < 0x0FFFFFF8); // Continue if not end of cluster chain
 }
 
-unsigned int getNextCluster(int fd, unsigned int currentCluster) {
-    unsigned char fatSector[SECTORSIZE];
+unsigned int getNextCluster(int fd, unsigned int currentCluster, unsigned char *fatSector) {
     unsigned int fatOffset = currentCluster * 4; // Each FAT32 entry is 4 bytes
     unsigned int sectorOfFAT = RESERVED_SECTORS + (fatOffset / SECTORSIZE); // FAT starts after reserved sectors
     unsigned int offsetInSector = fatOffset % SECTORSIZE;
     unsigned int nextCluster;
-
-    // Read the sector containing the current cluster's FAT entry
-    readsector(fd, fatSector, sectorOfFAT);
 
     // Extract the next cluster number from the FAT entry
     memcpy(&nextCluster, &fatSector[offsetInSector], sizeof(unsigned int));
@@ -176,9 +177,15 @@ unsigned int getNextCluster(int fd, unsigned int currentCluster) {
 
 void DisplayFileASCII(int fd, const char *filename) {
     unsigned char buffer[CLUSTERSIZE];  // Increase buffer size to cluster size
+    unsigned char fatTable[SECTORSIZE * 10];  // Example buffer for 10 FAT sectors
     struct dir_entry *entry;
     int i, found = FALSE;
     unsigned int currentCluster = ROOTDIR_START_CLUSTER;
+
+    // Pre-load the initial sectors of the FAT into fatTable for faster access
+    for (i = 0; i < 10; ++i) {
+        readsector(fd, fatTable + (i * SECTORSIZE), RESERVED_SECTORS + i);
+    }
 
     // Read the root directory cluster by cluster
     do {
@@ -200,8 +207,8 @@ void DisplayFileASCII(int fd, const char *filename) {
 
         if (found) break;
 
-        // Get the next cluster for the directory from the FAT
-        currentCluster = getNextCluster(fd, currentCluster);
+        // Get the next cluster for the directory from the FAT using the fatTable
+        currentCluster = getNextCluster(fd, currentCluster, fatTable);
     } while (currentCluster < 0x0FFFFFF8);
 
     if (!found) {
@@ -224,16 +231,22 @@ void DisplayFileASCII(int fd, const char *filename) {
                 putchar('.');  // Non-printable characters are shown as '.'
         }
 
-        // Get the next cluster for the file from the FAT
-        currentCluster = getNextCluster(fd, currentCluster);
+        // Get the next cluster for the file from the FAT using the fatTable
+        currentCluster = getNextCluster(fd, currentCluster, fatTable);
     } while (currentCluster < 0x0FFFFFF8);
 }
 
 void DisplayFileBinary(int fd, const char *filename) {
     unsigned char buffer[CLUSTERSIZE];
+    unsigned char fatTable[SECTORSIZE * 10];  // Example buffer for 10 FAT sectors
     struct dir_entry *entry;
     int i, found = FALSE;
     unsigned int currentCluster = ROOTDIR_START_CLUSTER;
+
+    // Pre-load the initial sectors of the FAT into fatTable for faster access
+    for (i = 0; i < 10; ++i) {
+        readsector(fd, fatTable + (i * SECTORSIZE), RESERVED_SECTORS + i);
+    }
 
     // Read the root directory cluster by cluster
     do {
@@ -255,8 +268,8 @@ void DisplayFileBinary(int fd, const char *filename) {
 
         if (found) break;
 
-        // Get the next cluster for the directory from the FAT
-        currentCluster = getNextCluster(fd, currentCluster);
+        // Get the next cluster for the directory from the FAT using the fatTable
+        currentCluster = getNextCluster(fd, currentCluster, fatTable);
     } while (currentCluster < 0x0FFFFFF8);
 
     if (!found) {
@@ -277,18 +290,24 @@ void DisplayFileBinary(int fd, const char *filename) {
             if ((i + 1) % 16 == 0) printf("\n"); // New line every 16 bytes for better readability
         }
 
-        // Get the next cluster for the file from the FAT
-        currentCluster = getNextCluster(fd, currentCluster);
+        // Get the next cluster for the file from the FAT using the fatTable
+        currentCluster = getNextCluster(fd, currentCluster, fatTable);
     } while (currentCluster < 0x0FFFFFF8);
 }
 
 void CreateFile(int fd, const char *filename) {
     unsigned char buffer[CLUSTERSIZE];
+    unsigned char fatTable[SECTORSIZE * 10];  // Buffer to hold portions of the FAT
     struct dir_entry *entry;
     int i, sector, foundFree = FALSE;
     unsigned int currentCluster = ROOTDIR_START_CLUSTER;
 
-    // First, ensure filename length fits into the 8.3 format
+    // Pre-load the initial sectors of the FAT into fatTable
+    for (i = 0; i < 10; ++i) {
+        readsector(fd, fatTable + (i * SECTORSIZE), RESERVED_SECTORS + i);
+    }
+
+    // Ensure filename length fits into the 8.3 format
     char name[12]; // Extra space for null-terminator
     snprintf(name, sizeof(name), "%-11.11s", filename); // Format to 11 characters, space-padded
 
@@ -316,7 +335,8 @@ void CreateFile(int fd, const char *filename) {
             }
         }
 
-        currentCluster = getNextCluster(fd, currentCluster);
+        // Get the next cluster for the directory from the FAT using the fatTable
+        currentCluster = getNextCluster(fd, currentCluster, fatTable);
     } while (currentCluster < 0x0FFFFFF8);
 
     if (!foundFree) {
@@ -324,14 +344,21 @@ void CreateFile(int fd, const char *filename) {
     }
 }
 
+
 void DeleteFile(int fd, const char *filename) {
     unsigned char buffer[CLUSTERSIZE];
+    unsigned char fatTable[SECTORSIZE * 10]; // Assume loading 10 FAT sectors for demonstration
     struct dir_entry *entry;
     int i, sector;
     unsigned int currentCluster = ROOTDIR_START_CLUSTER;
 
     char name[12];
     snprintf(name, sizeof(name), "%-11.11s", filename);
+
+    // Load initial sectors of the FAT into fatTable for faster access
+    for (i = 0; i < 10; ++i) {
+        readsector(fd, fatTable + (i * SECTORSIZE), RESERVED_SECTORS + i);
+    }
 
     // Read and search the root directory for the file entry
     do {
@@ -347,7 +374,7 @@ void DeleteFile(int fd, const char *filename) {
                 // Free the clusters used by the file
                 unsigned int cluster = ((entry->fstClusHI << 16) | entry->fstClusLO);
                 while (cluster < 0x0FFFFFF8) {
-                    unsigned int nextCluster = getNextCluster(fd, cluster);
+                    unsigned int nextCluster = getNextCluster(fd, cluster, fatTable);
                     freeCluster(fd, cluster);  // Function to mark the cluster as free in the FAT
                     cluster = nextCluster;
                 }
@@ -359,7 +386,7 @@ void DeleteFile(int fd, const char *filename) {
             }
         }
 
-        currentCluster = getNextCluster(fd, currentCluster);
+        currentCluster = getNextCluster(fd, currentCluster, fatTable);
     } while (currentCluster < 0x0FFFFFF8);
 
     printf("File not found: %s\n", filename);
@@ -385,8 +412,14 @@ void freeCluster(int fd, unsigned int cluster) {
 void WriteDataToFile(int fd, const char *filename, unsigned int offset, unsigned int n, unsigned char data) {
     struct dir_entry *entry;
     unsigned char buffer[CLUSTERSIZE];
+    unsigned char fatTable[SECTORSIZE * 10];  // Example buffer for 10 FAT sectors
     int i, sector, found = FALSE;
     unsigned int currentCluster, clusterOffset, sectorOffset, bytesToWrite;
+
+    // Pre-load the initial sectors of the FAT into fatTable for faster access
+    for (i = 0; i < 10; ++i) {
+        readsector(fd, fatTable + (i * SECTORSIZE), RESERVED_SECTORS + i);
+    }
 
     // First, find the file's directory entry
     currentCluster = ROOTDIR_START_CLUSTER;
@@ -404,7 +437,7 @@ void WriteDataToFile(int fd, const char *filename, unsigned int offset, unsigned
         }
 
         if (found) break;
-        currentCluster = getNextCluster(fd, currentCluster);
+        currentCluster = getNextCluster(fd, currentCluster, fatTable);
     } while (currentCluster < 0x0FFFFFF8);
 
     if (!found) {
@@ -418,9 +451,9 @@ void WriteDataToFile(int fd, const char *filename, unsigned int offset, unsigned
     // Find the cluster and sector where the offset lands
     while (offset >= CLUSTERSIZE) {
         offset -= CLUSTERSIZE;
-        currentCluster = getNextCluster(fd, currentCluster);
+        currentCluster = getNextCluster(fd, currentCluster, fatTable);
         if (currentCluster >= 0x0FFFFFF8) { // Needs a new cluster
-            currentCluster = allocateNewCluster(fd); // Function to allocate a new cluster
+            currentCluster = allocateNewCluster(fd);
             if (currentCluster == 0xFFFFFFFF) {
                 printf("Failed to allocate new cluster.\n");
                 return;
@@ -449,7 +482,7 @@ void WriteDataToFile(int fd, const char *filename, unsigned int offset, unsigned
         // Check if we need to move to the next sector/cluster
         if (offset >= CLUSTERSIZE) {
             offset -= CLUSTERSIZE;
-            currentCluster = getNextCluster(fd, currentCluster);
+            currentCluster = getNextCluster(fd, currentCluster, fatTable);
             if (currentCluster >= 0x0FFFFFF8) { // Needs a new cluster
                 currentCluster = allocateNewCluster(fd);
                 if (currentCluster == 0xFFFFFFFF) {
@@ -468,10 +501,11 @@ void WriteDataToFile(int fd, const char *filename, unsigned int offset, unsigned
     }
 }
 
+
 unsigned int allocateNewCluster(int fd) {
     unsigned char fatSector[SECTORSIZE];
     unsigned int cluster;
-    unsigned int totalClusters = NUM_CLUSTERS; // This should be defined based on your disk's parameters
+    unsigned int totalClusters = ROOTDIR_START_CLUSTER; // This should be defined based on your disk's parameters
     unsigned int fatEntry, sectorOfFAT, offsetInSector;
 
     // Iterate over each cluster entry in the FAT to find a free one
