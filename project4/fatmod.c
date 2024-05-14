@@ -195,18 +195,83 @@ unsigned int getNextCluster(int fd, unsigned int currentCluster, unsigned char *
 
 
 void DisplayFileASCII(int fd, const char *filename) {
-    unsigned char buffer[bs->sectors_per_cluster * SECTORSIZE];
-    unsigned char fatTable[bs->sectors_per_fat * SECTORSIZE]; // Buffer for FAT table
+    unsigned char buffer[CLUSTERSIZE];
+    unsigned char fatTable[bs->sectors_per_fat * SECTORSIZE];
+    struct dir_entry *entry;
+    int i, found = FALSE;
+    unsigned int currentCluster = bs->root_cluster;
+    
+    // Pre-load FAT table
+    for (i = 0; i < bs->sectors_per_fat; i++) {
+        readsector(fd, fatTable + (i * SECTORSIZE), bs->reserved_sectors + i);
+    }
+    
+    do {
+        int sector = (currentCluster - 2) * bs->sectors_per_cluster + bs->reserved_sectors;
+        readsector(fd, buffer, sector);
+        
+        for (i = 0; i < CLUSTERSIZE / sizeof(struct dir_entry); i++) {
+            entry = (struct dir_entry *)(buffer + i * sizeof(struct dir_entry));
+            if (entry->name[0] == 0x00) break;
+            if (entry->name[0] == 0xE5) continue;
+            if (strncmp((const char *)entry->name, filename, 11) == 0 && !(entry->attr & (ATTR_VOLUME_ID | ATTR_DIRECTORY))) {
+                found = TRUE;
+                break;
+            }
+        }
+        
+        if (found) break;
+        currentCluster = getNextCluster(fd, currentCluster, fatTable);
+    } while (currentCluster < 0x0FFFFFF8);
+    
+    if (!found) {
+        printf("File not found.\n");
+        return;
+    }
+
+
+    // Now read the file's data
+    
+    // Now read the file's data
+    currentCluster = ((entry->fstClusHI << 16) | entry->fstClusLO);
+    
+    do {
+        int sector = (currentCluster - 2) * bs->sectors_per_cluster + bs->reserved_sectors;
+        for (i = 0; i < bs->sectors_per_cluster; i++) {
+            readsector(fd, buffer + (i * SECTORSIZE), sector + i);
+        }
+        
+        for (i = 0; i < CLUSTERSIZE; i++) {
+            if (isprint(buffer[i]))
+                putchar(buffer[i]);
+            else
+                putchar('.');
+        }
+
+
+        // Get the next cluster for the file from the FAT using the fatTable
+        
+        // Get the next cluster for the file from the FAT using the fatTable
+        currentCluster = getNextCluster(fd, currentCluster, fatTable);
+    } while (currentCluster < 0x0FFFFFF8);
+}
+void DisplayFileBinary(int fd, const char *filename) {
+    unsigned char buffer[CLUSTERSIZE];
+    unsigned char fatTable[bs->sectors_per_fat * SECTORSIZE];
     struct dir_entry *entry;
     int i, found = FALSE;
     unsigned int currentCluster = bs->root_cluster;
 
-    // Adjusted to handle multiple sectors per cluster
+    // Pre-load FAT table
+    for (i = 0; i < bs->sectors_per_fat; ++i) {
+        readsector(fd, fatTable + (i * SECTORSIZE), bs->reserved_sectors + i);
+    }
+
     do {
         int sector = (currentCluster - 2) * bs->sectors_per_cluster + bs->reserved_sectors;
-        readsector(fd, buffer, sector);  // Assumes the first sector of the cluster holds the directory info
+        readsector(fd, buffer, sector);
 
-        for (i = 0; i < bs->sectors_per_cluster * SECTORSIZE / sizeof(struct dir_entry); i++) {
+        for (i = 0; i < CLUSTERSIZE / sizeof(struct dir_entry); i++) {
             entry = (struct dir_entry *)(buffer + i * sizeof(struct dir_entry));
             if (entry->name[0] == 0x00) break;
             if (entry->name[0] == 0xE5) continue;
@@ -217,67 +282,6 @@ void DisplayFileASCII(int fd, const char *filename) {
         }
 
         if (found) break;
-        currentCluster = getNextCluster(fd, currentCluster, buffer);
-    } while (currentCluster < 0x0FFFFFF8);
-
-    if (!found) {
-        printf("File not found.\n");
-        return;
-    }
-
-    // Now read the file's data
-    currentCluster = ((entry->fstClusHI << 16) | entry->fstClusLO);
-
-    do {
-        int sector = (currentCluster - 2) * (CLUSTERSIZE / SECTORSIZE) + RESERVED_SECTORS;
-        readsector(fd, buffer, sector);  // Read the first sector of the cluster
-
-        // Display the contents in ASCII
-        for (i = 0; i < CLUSTERSIZE; i++) {
-            if (isprint(buffer[i]))
-                putchar(buffer[i]);
-            else
-                putchar('.');  // Non-printable characters are shown as '.'
-        }
-
-        // Get the next cluster for the file from the FAT using the fatTable
-        currentCluster = getNextCluster(fd, currentCluster, fatTable);
-    } while (currentCluster < 0x0FFFFFF8);
-}
-
-void DisplayFileBinary(int fd, const char *filename) {
-    unsigned char buffer[CLUSTERSIZE];
-    unsigned char fatTable[SECTORSIZE * 10];  // Example buffer for 10 FAT sectors
-    struct dir_entry *entry;
-    int i, found = FALSE;
-    unsigned int currentCluster = ROOTDIR_START_CLUSTER;
-
-    // Pre-load the initial sectors of the FAT into fatTable for faster access
-    for (i = 0; i < 10; ++i) {
-        readsector(fd, fatTable + (i * SECTORSIZE), RESERVED_SECTORS + i);
-    }
-
-    // Read the root directory cluster by cluster
-    do {
-        int sector = (currentCluster - 2) * (CLUSTERSIZE / SECTORSIZE) + RESERVED_SECTORS;
-        readsector(fd, buffer, sector);  // Assumes the first sector of the cluster holds the directory info
-
-        // Search through directory entries in this sector
-        for (i = 0; i < CLUSTERSIZE / sizeof(struct dir_entry); i++) {
-            entry = (struct dir_entry *)(buffer + i * sizeof(struct dir_entry));
-            if (entry->name[0] == 0x00) break; // End of directory entries
-            if (entry->name[0] == 0xE5) continue; // Skip deleted entries
-
-            // Check if the entry matches the filename and is not a directory or volume label
-            if (strncmp((const char*)entry->name, filename, 11) == 0 && !(entry->attr & (ATTR_VOLUME_ID | ATTR_DIRECTORY))) {
-                found = TRUE;
-                break;
-            }
-        }
-
-        if (found) break;
-
-        // Get the next cluster for the directory from the FAT using the fatTable
         currentCluster = getNextCluster(fd, currentCluster, fatTable);
     } while (currentCluster < 0x0FFFFFF8);
 
@@ -286,52 +290,52 @@ void DisplayFileBinary(int fd, const char *filename) {
         return;
     }
 
-    // Now read the file's data
     currentCluster = ((entry->fstClusHI << 16) | entry->fstClusLO);
 
     do {
-        int sector = (currentCluster - 2) * (CLUSTERSIZE / SECTORSIZE) + RESERVED_SECTORS;
-        readsector(fd, buffer, sector);  // Read the first sector of the cluster
+        int sector = (currentCluster - 2) * bs->sectors_per_cluster + bs->reserved_sectors;
+        for (i = 0; i < bs->sectors_per_cluster; i++) {
+            readsector(fd, buffer + (i * SECTORSIZE), sector + i);
+        }
 
-        // Display the contents in hexadecimal
         for (i = 0; i < CLUSTERSIZE; i++) {
             printf("%02x ", buffer[i]);
-            if ((i + 1) % 16 == 0) printf("\n"); // New line every 16 bytes for better readability
+            if ((i + 1) % 16 == 0) printf("\n");
         }
 
-        // Get the next cluster for the file from the FAT using the fatTable
         currentCluster = getNextCluster(fd, currentCluster, fatTable);
     } while (currentCluster < 0x0FFFFFF8);
 }
 
 void CreateFile(int fd, const char *filename) {
-    unsigned char buffer[bs->sectors_per_cluster * SECTORSIZE];
+    unsigned char buffer[CLUSTERSIZE];
     struct dir_entry *entry;
     int i, sector, foundFree = FALSE;
     unsigned int currentCluster = bs->root_cluster;
 
-    // Ensure filename length fits into the 8.3 format
     char name[12]; // Extra space for null-terminator
     snprintf(name, sizeof(name), "%-11.11s", filename); // Format to 11 characters, space-padded
 
-    // Read and search the root directory for an empty or usable entry
     do {
         sector = (currentCluster - 2) * bs->sectors_per_cluster + bs->reserved_sectors;
-        readsector(fd, buffer, sector);
+        for (i = 0; i < bs->sectors_per_cluster; i++) {
+            readsector(fd, buffer + (i * SECTORSIZE), sector + i);
+        }
 
-        for (i = 0; i < bs->sectors_per_cluster * SECTORSIZE / sizeof(struct dir_entry); i++) {
+        for (i = 0; i < CLUSTERSIZE / sizeof(struct dir_entry); i++) {
             entry = (struct dir_entry *)(buffer + i * sizeof(struct dir_entry));
-
             if (entry->name[0] == 0x00 || entry->name[0] == 0xE5) {
                 foundFree = TRUE;
                 memset(entry, 0, sizeof(struct dir_entry));
-                snprintf((char*)entry->name, 9, "%-8.8s", filename); // Ensures only the first 8 characters are considered
+                snprintf((char *)entry->name, 12, "%-11.11s", name);
                 entry->fileSize = 0;
                 entry->fstClusHI = 0;
                 entry->fstClusLO = 0;
                 entry->attr = ATTR_ARCHIVE;
 
-                writesector(fd, buffer, sector);
+                for (i = 0; i < bs->sectors_per_cluster; i++) {
+                    writesector(fd, buffer + (i * SECTORSIZE), sector + i);
+                }
                 printf("File created: %s\n", filename);
                 return;
             }
@@ -390,7 +394,7 @@ void DeleteFile(int fd, const char *filename) {
 void freeCluster(int fd, unsigned int cluster) {
     unsigned char fatSector[SECTORSIZE];
     unsigned int fatOffset = cluster * 4; // Each FAT32 entry is 4 bytes
-    unsigned int sectorOfFAT = RESERVED_SECTORS + (fatOffset / SECTORSIZE);
+    unsigned int sectorOfFAT = bs->reserved_sectors + (fatOffset / SECTORSIZE);
     unsigned int offsetInSector = fatOffset % SECTORSIZE;
     unsigned int zero = 0;
 
@@ -411,7 +415,7 @@ void WriteDataToFile(int fd, const char *filename, unsigned int offset, unsigned
     int i, sector, found = FALSE;
     unsigned int currentCluster, sectorOffset, bytesToWrite;
 
-    // Read the entire FAT into memory (assuming it fits into the defined fatTable buffer size)
+    // Load the entire FAT into memory
     for (i = 0; i < bs->sectors_per_fat; i++) {
         readsector(fd, fatTable + (i * SECTORSIZE), bs->reserved_sectors + i);
     }
@@ -419,7 +423,9 @@ void WriteDataToFile(int fd, const char *filename, unsigned int offset, unsigned
     currentCluster = bs->root_cluster;
     do {
         sector = (currentCluster - 2) * bs->sectors_per_cluster + bs->reserved_sectors;
-        readsector(fd, buffer, sector);
+        for (i = 0; i < bs->sectors_per_cluster; i++) {
+            readsector(fd, buffer + (i * SECTORSIZE), sector + i);
+        }
 
         for (i = 0; i < bs->sectors_per_cluster * SECTORSIZE / sizeof(struct dir_entry); i++) {
             entry = (struct dir_entry *)(buffer + i * sizeof(struct dir_entry));
@@ -463,7 +469,7 @@ void WriteDataToFile(int fd, const char *filename, unsigned int offset, unsigned
     // Update file size if needed
     if (entry->fileSize < offset + n) {
         entry->fileSize = offset + n;
-        writesector(fd, buffer, sector);  // Assuming sector where directory entry is stored is properly calculated
+        writesector(fd, buffer, sector); // Assuming sector where directory entry is stored is properly calculated
     }
 }
 
@@ -499,38 +505,41 @@ void clearCluster(int fd, unsigned int cluster) {
     unsigned char zeroBuffer[CLUSTERSIZE];
     memset(zeroBuffer, 0, CLUSTERSIZE); // Set all bytes to zero
 
-    unsigned int sector = (cluster - 2) * (CLUSTERSIZE / SECTORSIZE) + RESERVED_SECTORS;
+    unsigned int sector = (cluster - 2) * bs->sectors_per_cluster + bs->reserved_sectors;
 
     // Assuming each cluster is 2 sectors for simplicity
-    writesector(fd, zeroBuffer, sector);
-    writesector(fd, zeroBuffer, sector + 1);
+    for (unsigned int i = 0; i < bs->sectors_per_cluster; i++) {
+        writesector(fd, zeroBuffer, sector + i);
+    }
 }
 
-int readsector (int fd, unsigned char *buf, uint snum){
-    off_t offset;
-    int n;
-    offset = snum * SECTORSIZE;
-    lseek (fd, offset, SEEK_SET);
-    n = read (fd, buf, SECTORSIZE);
-    if (n == SECTORSIZE)
-        return (0);
-    else
-        return (-1); // error
-    return (0);
+int readsector(int fd, unsigned char *buf, uint snum) {
+    off_t offset = snum * SECTORSIZE;
+    if (lseek(fd, offset, SEEK_SET) == (off_t) -1) {
+        perror("lseek");
+        return -1;
+    }
+    if (read(fd, buf, SECTORSIZE) != SECTORSIZE) {
+        perror("read");
+        return -1;
+    }
+    return 0;
 }
-int writesector (int fd, unsigned char *buf, uint snum)
-{
-    off_t offset;
-    int n;
-    offset = snum * SECTORSIZE;
-    lseek (fd, offset, SEEK_SET);
-    n = write (fd, buf, SECTORSIZE);
-    fsync (fd); // enforce output immediately to disk
-    if (n == SECTORSIZE)
-        return (0);
-    else
-        return (-1); // error
-    return (0);
+int writesector(int fd, unsigned char *buf, uint snum) {
+    off_t offset = snum * SECTORSIZE;
+    if (lseek(fd, offset, SEEK_SET) == (off_t) -1) {
+        perror("lseek");
+        return -1;
+    }
+    if (write(fd, buf, SECTORSIZE) != SECTORSIZE) {
+        perror("write");
+        return -1;
+    }
+    if (fsync(fd) == -1) {
+        perror("fsync");
+        return -1;
+    }
+    return 0;
 }
 int read_boot_sector(int fd) {
     uint8_t buffer[SECTORSIZE];
