@@ -220,28 +220,72 @@ unsigned int getNextCluster(int fd, unsigned int currentCluster, unsigned char *
 
 
 void DisplayFileASCII(int fd, const char *filename) {
-    unsigned char buffer[bs->sectors_per_cluster * SECTORSIZE];
-    unsigned char fatTable[bs->sectors_per_fat * SECTORSIZE];
+
+unsigned char buffer[bs->sectors_per_cluster * SECTORSIZE];
+    unsigned char fatTable[bs->sectors_per_fat * SECTORSIZE];  // Buffer to hold portions of the FAT
     struct dir_entry *entry;
-    int i, found = FALSE;
+    int i, j, k, sector;
     unsigned int currentCluster = bs->root_cluster;
+    unsigned int nextCluster;
+
+
+    int found = FALSE;
     
-    // Pre-load FAT table
-    for (i = 0; i < bs->sectors_per_fat; i++) {
+
+    // Pre-load the initial sectors of the FAT into fatTable for faster access
+    for (i = 0; i < bs->sectors_per_fat; ++i) {
         readsector(fd, fatTable + (i * SECTORSIZE), bs->reserved_sectors + i);
     }
-    
+
     do {
-        int sector = (currentCluster - 2) * bs->sectors_per_cluster + bs->reserved_sectors;
-        readsector(fd, buffer, sector);
-        
-        for (i = 0; i < bs->sectors_per_cluster * SECTORSIZE / sizeof(struct dir_entry); i++) {
-            entry = (struct dir_entry *)(buffer + i * sizeof(struct dir_entry));
-            if (entry->name[0] == 0x00) break;
-            if (entry->name[0] == 0xE5) continue;
-            if (strncmp((const char *)entry->name, filename, 11) == 0 && !(entry->attr & (ATTR_VOLUME_ID | ATTR_DIRECTORY))) {
+        sector = (currentCluster - 2) * bs->sectors_per_cluster + bs->reserved_sectors;
+
+        // Read all sectors within the current cluster
+        for (i = 0; i < bs->sectors_per_cluster; i++) {
+            readsector(fd, buffer + (i * SECTORSIZE), sector + i);
+        }
+
+        // Process each directory entry in the cluster
+        for (j = 0; j < (bs->sectors_per_cluster * SECTORSIZE) / sizeof(struct dir_entry); j++) {
+            entry = (struct dir_entry *)(buffer + j * sizeof(struct dir_entry));
+            if (entry->name[0] == 0x00) {
+                printf("End of directory entries.\n");
+                return; // No more entries
+            }
+            if (entry->name[0] == 0xE5) {
+                continue; // Skip deleted entries
+            }
+
+            if (!(entry->attr & ATTR_VOLUME_ID)) {
+                // Format the name and extension
+                char name[9];
+                char ext[4];
+                memset(name, 0, sizeof(name));
+                memset(ext, 0, sizeof(ext));
+
+                for (k = 0; k < 8 && entry->name[k] != ' '; k++) {
+                    name[k] = entry->name[k];
+                }
+                for (k = 0; k < 3 && entry->name[8 + k] != ' '; k++) {
+                    ext[k] = entry->name[8 + k];
+                }
+
+                char fullname[13];
+                snprintf(fullname, sizeof(fullname), "%s%s", name, ext);
+                // Trim any trailing spaces from fullname
+                for (k = strlen(fullname) - 1; k >= 0 && fullname[k] == ' '; k--) {
+                    fullname[k] = '\0';
+                }
+
+                // Print the formatted name and extension for debugging
+                printf("Checking file: %s\n", fullname);
+
+                // Compare formatted name and extension with filename
+                if (strcmp(fullname, filename) == 0) {
+
                 found = TRUE;
                 break;
+                }
             }
         }
         
