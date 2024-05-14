@@ -144,26 +144,21 @@ int main(int argc, char *argv[]) {
 
 
 void ListFiles(int fd) {
-
     unsigned char buffer[bs->sectors_per_cluster * SECTORSIZE];
-
     unsigned char fatTable[bs->sectors_per_fat * SECTORSIZE];
-
     struct dir_entry *entry;
-
-    int i, j;
+    int i, j, k;
     unsigned int currentCluster = bs->root_cluster;
     unsigned int nextCluster;
 
     // Read the FAT table
     for (i = 0; i < bs->sectors_per_fat; i++) {
-
         readsector(fd, fatTable + (i * SECTORSIZE), bs->reserved_sectors + i);
     }
 
     do {
         int sector = (currentCluster - 2) * bs->sectors_per_cluster + bs->reserved_sectors;
-        
+
         // Read all sectors within the current cluster
         for (i = 0; i < bs->sectors_per_cluster; i++) {
             readsector(fd, buffer + (i * SECTORSIZE), sector + i);
@@ -180,7 +175,25 @@ void ListFiles(int fd) {
             }
 
             if (!(entry->attr & ATTR_VOLUME_ID)) {
-                printf("%11.11s Size: %u bytes\n", entry->name, entry->fileSize);
+                // Format the name and extension
+                char name[9];
+                char ext[4];
+                memset(name, 0, sizeof(name));
+                memset(ext, 0, sizeof(ext));
+
+                for (k = 0; k < 8 && entry->name[k] != ' '; k++) {
+                    name[k] = entry->name[k];
+                }
+                for (k = 0; k < 3 && entry->name[8 + k] != ' '; k++) {
+                    ext[k] = entry->name[8 + k];
+                }
+
+                // Print the formatted name and extension
+                if (strlen(ext) > 0) {
+                    printf("%s%s Size: %u bytes\n", name, ext, entry->fileSize);
+                } else {
+                    printf("%s Size: %u bytes\n", name, entry->fileSize);
+                }
             }
         }
 
