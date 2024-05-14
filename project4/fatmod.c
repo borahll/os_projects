@@ -226,7 +226,6 @@ void DisplayFileASCII(int fd, const char *filename) {
     struct dir_entry *entry;
     int i, j, k, sector;
     unsigned int currentCluster = bs->root_cluster;
-    unsigned int nextCluster;
 
 
     int found = FALSE;
@@ -330,7 +329,6 @@ void DisplayFileBinary(int fd, const char *filename) {
     struct dir_entry *entry;
     int i, j, k, sector;
     unsigned int currentCluster = bs->root_cluster;
-    unsigned int nextCluster;
 
 
     int found = FALSE;
@@ -388,6 +386,7 @@ void DisplayFileBinary(int fd, const char *filename) {
                 if (strcmp(fullname, filename) == 0) {
                 found = TRUE;
                 break;
+                }
             }
         }
 
