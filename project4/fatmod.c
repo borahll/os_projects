@@ -380,45 +380,87 @@ void DeleteFile(int fd, const char *filename) {
     unsigned char buffer[bs->sectors_per_cluster * SECTORSIZE];
     unsigned char fatTable[bs->sectors_per_fat * SECTORSIZE];  // Buffer to hold portions of the FAT
     struct dir_entry *entry;
-    int i, sector;
+    int i, j, k, sector;
     unsigned int currentCluster = bs->root_cluster;
+    unsigned int nextCluster;
+
     // Pre-load the initial sectors of the FAT into fatTable for faster access
-    for (i = 0; i < bs->sectors_per_fat && i < bs->total_sectors; ++i) {
+    for (i = 0; i < bs->sectors_per_fat; ++i) {
         readsector(fd, fatTable + (i * SECTORSIZE), bs->reserved_sectors + i);
     }
+
     do {
         sector = (currentCluster - 2) * bs->sectors_per_cluster + bs->reserved_sectors;
-        readsector(fd, buffer, sector);
 
-        for (i = 0; i < bs->sectors_per_cluster * SECTORSIZE / sizeof(struct dir_entry); i++) {
-            entry = (struct dir_entry *)(buffer + i * sizeof(struct dir_entry));
-            
+        // Read all sectors within the current cluster
+        for (i = 0; i < bs->sectors_per_cluster; i++) {
+            readsector(fd, buffer + (i * SECTORSIZE), sector + i);
+        }
+
+        // Process each directory entry in the cluster
+        for (j = 0; j < (bs->sectors_per_cluster * SECTORSIZE) / sizeof(struct dir_entry); j++) {
+            entry = (struct dir_entry *)(buffer + j * sizeof(struct dir_entry));
+            if (entry->name[0] == 0x00) {
+                printf("End of directory entries.\n");
+                return; // No more entries
+            }
+            if (entry->name[0] == 0xE5) {
+                continue; // Skip deleted entries
+            }
 
             if (!(entry->attr & ATTR_VOLUME_ID)) {
-                printf("%11.11s Size: %u bytes\n", entry->name, entry->fileSize);
-            }
-            printf("File found: %s\n", entry->name);
-            if (strncmp((const char*)entry->name, filename, 12) == 0) {
-                entry->name[0] = 0xE5;  // Mark the entry as deleted
+                // Format the name and extension
+                char name[9];
+                char ext[4];
+                memset(name, 0, sizeof(name));
+                memset(ext, 0, sizeof(ext));
 
-                unsigned int cluster = ((entry->fstClusHI << 16) | entry->fstClusLO);
-                while (cluster < 0x0FFFFFF8) {
-                    unsigned int nextCluster = getNextCluster(fd, cluster, buffer);
-                    freeCluster(fd, cluster);
-                    cluster = nextCluster;
+                for (k = 0; k < 8 && entry->name[k] != ' '; k++) {
+                    name[k] = entry->name[k];
+                }
+                for (k = 0; k < 3 && entry->name[8 + k] != ' '; k++) {
+                    ext[k] = entry->name[8 + k];
                 }
 
-                writesector(fd, buffer, sector);
-                printf("File deleted: %s\n", filename);
-                return;
+                char fullname[13];
+                snprintf(fullname, sizeof(fullname), "%s%s", name, ext);
+                // Trim any trailing spaces from fullname
+                for (k = strlen(fullname) - 1; k >= 0 && fullname[k] == ' '; k--) {
+                    fullname[k] = '\0';
+                }
+
+                // Print the formatted name and extension for debugging
+                printf("Checking file: %s\n", fullname);
+
+                // Compare formatted name and extension with filename
+                if (strcmp(fullname, filename) == 0) {
+                    entry->name[0] = 0xE5;  // Mark the entry as deleted
+
+                    unsigned int cluster = ((entry->fstClusHI << 16) | entry->fstClusLO);
+                    while (cluster < 0x0FFFFFF8) {
+                        unsigned int nextCluster = getNextCluster(fd, cluster, fatTable);
+                        freeCluster(fd, cluster);
+                        cluster = nextCluster;
+                    }
+
+                    // Write the updated directory entry back to disk
+                    for (i = 0; i < bs->sectors_per_cluster; i++) {
+                        writesector(fd, buffer + (i * SECTORSIZE), sector + i);
+                    }
+                    printf("File deleted: %s\n", filename);
+                    return;
+                }
             }
         }
 
-        currentCluster = getNextCluster(fd, currentCluster, buffer);
-    } while (currentCluster < 0x0FFFFFF8);
+        nextCluster = getNextCluster(fd, currentCluster, fatTable);
+        currentCluster = nextCluster;
+    } while (nextCluster < 0x0FFFFFF8);
 
     printf("File not found: %s\n", filename);
 }
+
+
 
 
 void freeCluster(int fd, unsigned int cluster) {
