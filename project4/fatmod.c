@@ -73,9 +73,16 @@ int main(int argc, char *argv[]) {
     }
 
     const char* diskImage = argv[1];
+
     const char* command = argv[2];
+        bs = malloc(sizeof(BootSector));
+    if (bs == NULL) {
+        fprintf(stderr, "Failed to allocate memory for BootSector\n");
+        return 1;  // Exit if memory allocation fails
+    }
 
     int fd = open(diskImage, O_RDWR | O_SYNC);
+
     if (fd == -1) {
         perror("Failed to open disk image");
         return 1;
@@ -84,7 +91,6 @@ int main(int argc, char *argv[]) {
         close(fd);
         return 1;  // Handle error appropriately
     }
-
     if (strcmp(command, "-l") == 0) {
         ListFiles(fd);
     } else if (strcmp(command, "-ra") == 0) {
@@ -138,15 +144,20 @@ int main(int argc, char *argv[]) {
 
 
 void ListFiles(int fd) {
+
     unsigned char buffer[bs->sectors_per_cluster * SECTORSIZE];
+
     unsigned char fatTable[bs->sectors_per_fat * SECTORSIZE];
+
     struct dir_entry *entry;
+
     int i, j;
     unsigned int currentCluster = bs->root_cluster;
     unsigned int nextCluster;
 
     // Read the FAT table
     for (i = 0; i < bs->sectors_per_fat; i++) {
+
         readsector(fd, fatTable + (i * SECTORSIZE), bs->reserved_sectors + i);
     }
 
@@ -543,17 +554,23 @@ int writesector(int fd, unsigned char *buf, uint snum) {
     return 0;
 }
 int read_boot_sector(int fd) {
+    
     uint8_t buffer[SECTORSIZE];
     if (pread(fd, buffer, SECTORSIZE, 0) != SECTORSIZE) {
         perror("Failed to read boot sector");
         return -1;
     }
 
+
     // Assuming little-endian as per FAT32 specification
     bs->bytes_per_sector = *((uint16_t *)(buffer + 11));
+
     bs->sectors_per_cluster = *(buffer + 13);
+
     bs->reserved_sectors = *((uint16_t *)(buffer + 14));
+
     bs->number_of_fats = *(buffer + 16);
+
     bs->total_sectors = *((uint32_t *)(buffer + 32));
     bs->sectors_per_fat = *((uint32_t *)(buffer + 36));
     bs->root_cluster = *((uint32_t *)(buffer + 44));
