@@ -138,28 +138,29 @@ int main(int argc, char *argv[]) {
 
 
 void ListFiles(int fd) {
-    unsigned char buffer[SECTORSIZE];
-    unsigned char fatTable[bs->sectors_per_cluster * SECTORSIZE];  // Adjust based on actual sectors per cluster
+    unsigned char buffer[bs->sectors_per_cluster * SECTORSIZE];
+    unsigned char fatTable[bs->sectors_per_fat * SECTORSIZE];
     struct dir_entry *entry;
-    int /*result,*/ i;
+    int i, j;
     unsigned int currentCluster = bs->root_cluster;
     unsigned int nextCluster;
 
-    // Read the FAT sector
-    readsector(fd, fatTable, bs->reserved_sectors);  // Assuming FAT starts right after reserved sectors
+    // Read the FAT table
+    for (i = 0; i < bs->sectors_per_fat; i++) {
+        readsector(fd, fatTable + (i * SECTORSIZE), bs->reserved_sectors + i);
+    }
 
     do {
-        // int rootDirSector = (currentCluster - 2) * bs->sectors_per_cluster + bs->reserved_sectors; // Calculate sector from cluster
-        // result = readsector(fd, buffer, rootDirSector);
-        /* TODO
-        if (result != 0) {
-            printf("Error reading root directory sector\n");
-            return;
+        int sector = (currentCluster - 2) * bs->sectors_per_cluster + bs->reserved_sectors;
+        
+        // Read all sectors within the current cluster
+        for (i = 0; i < bs->sectors_per_cluster; i++) {
+            readsector(fd, buffer + (i * SECTORSIZE), sector + i);
         }
 
-         */
-        for (i = 0; i < SECTORSIZE / sizeof(struct dir_entry); i++) {
-            entry = (struct dir_entry *)(buffer + i * sizeof(struct dir_entry));
+        // Process each directory entry in the cluster
+        for (j = 0; j < (bs->sectors_per_cluster * SECTORSIZE) / sizeof(struct dir_entry); j++) {
+            entry = (struct dir_entry *)(buffer + j * sizeof(struct dir_entry));
             if (entry->name[0] == 0x00) {
                 return; // No more entries
             }
