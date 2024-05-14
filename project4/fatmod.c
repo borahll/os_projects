@@ -564,30 +564,99 @@ void freeCluster(int fd, unsigned int cluster) {
     writesector(fd, fatSector, sectorOfFAT);
 }
 
+
+
+
+unsigned int allocateNewCluster(int fd) {
+    unsigned char fatSector[SECTORSIZE];
+    unsigned int cluster;
+    unsigned int fatEntry, sectorOfFAT, offsetInSector;
+
+    for (cluster = 2; cluster < bs->total_clusters + 2; cluster++) {
+        fatEntry = cluster * 4; // Each FAT32 entry is 4 bytes
+        sectorOfFAT = bs->reserved_sectors + (fatEntry / SECTORSIZE);
+        offsetInSector = fatEntry % SECTORSIZE;
+
+        readsector(fd, fatSector, sectorOfFAT);
+
+        memcpy(&fatEntry, &fatSector[offsetInSector], sizeof(unsigned int));
+        if (fatEntry == 0) { // Found a free cluster
+            fatEntry = 0x0FFFFFFF;
+            memcpy(&fatSector[offsetInSector], &fatEntry, sizeof(unsigned int));
+            writesector(fd, fatSector, sectorOfFAT);
+            clearCluster(fd, cluster);
+            return cluster;
+        }
+    }
+    return 0xFFFFFFFF;
+}
+
 void WriteDataToFile(int fd, const char *filename, unsigned int offset, unsigned int n, unsigned char data) {
     unsigned char buffer[bs->sectors_per_cluster * SECTORSIZE];
     unsigned char fatTable[bs->sectors_per_fat * SECTORSIZE];  // Adjusted to actual FAT size
     struct dir_entry *entry;
-    int i, sector, found = FALSE;
-    unsigned int currentCluster, sectorOffset, bytesToWrite;
+    int sector, found = FALSE;
+    unsigned int sectorOffset, bytesToWrite;
 
-    // Load the entire FAT into memory
-    for (i = 0; i < bs->sectors_per_fat; i++) {
+
+
+    int i, j, k;
+    unsigned int currentCluster = bs->root_cluster;
+
+    // Pre-load the initial sectors of the FAT into fatTable for faster access
+    for (i = 0; i < bs->sectors_per_fat; ++i) {
         readsector(fd, fatTable + (i * SECTORSIZE), bs->reserved_sectors + i);
     }
 
-    currentCluster = bs->root_cluster;
     do {
         sector = (currentCluster - 2) * bs->sectors_per_cluster + bs->reserved_sectors;
+
+        // Read all sectors within the current cluster
         for (i = 0; i < bs->sectors_per_cluster; i++) {
             readsector(fd, buffer + (i * SECTORSIZE), sector + i);
         }
 
-        for (i = 0; i < bs->sectors_per_cluster * SECTORSIZE / sizeof(struct dir_entry); i++) {
-            entry = (struct dir_entry *)(buffer + i * sizeof(struct dir_entry));
-            if (strncmp((const char*)entry->name, filename, 11) == 0) {
-                found = TRUE;
-                break;
+        // Process each directory entry in the cluster
+        for (j = 0; j < (bs->sectors_per_cluster * SECTORSIZE) / sizeof(struct dir_entry); j++) {
+            entry = (struct dir_entry *)(buffer + j * sizeof(struct dir_entry));
+            if (entry->name[0] == 0x00) {
+                printf("End of directory entries.\n");
+                return; // No more entries
+            }
+            if (entry->name[0] == 0xE5) {
+                continue; // Skip deleted entries
+            }
+
+            if (!(entry->attr & ATTR_VOLUME_ID)) {
+                // Format the name and extension
+                char name[9];
+                char ext[4];
+                memset(name, 0, sizeof(name));
+                memset(ext, 0, sizeof(ext));
+
+                for (k = 0; k < 8 && entry->name[k] != ' '; k++) {
+                    name[k] = entry->name[k];
+                }
+                for (k = 0; k < 3 && entry->name[8 + k] != ' '; k++) {
+                    ext[k] = entry->name[8 + k];
+                }
+
+                char fullname[13];
+                snprintf(fullname, sizeof(fullname), "%s%s", name, ext);
+                // Trim any trailing spaces from fullname
+                for (k = strlen(fullname) - 1; k >= 0 && fullname[k] == ' '; k--) {
+                    fullname[k] = '\0';
+                }
+
+                // Print the formatted name and extension for debugging
+                printf("Checking file: %s\n", fullname);
+
+                // Compare formatted name and extension with filename
+                if (strcmp(fullname, filename) == 0) {
+                    found = TRUE;
+                    printf("Found file: %s\n", fullname);
+                    break;
+                }
             }
         }
 
@@ -626,36 +695,9 @@ void WriteDataToFile(int fd, const char *filename, unsigned int offset, unsigned
     if (entry->fileSize < offset + n) {
         entry->fileSize = offset + n;
         writesector(fd, buffer, sector); // Assuming sector where directory entry is stored is properly calculated
+        printf("Written sector\n");
     }
 }
-
-
-
-
-unsigned int allocateNewCluster(int fd) {
-    unsigned char fatSector[SECTORSIZE];
-    unsigned int cluster;
-    unsigned int fatEntry, sectorOfFAT, offsetInSector;
-
-    for (cluster = 2; cluster < bs->total_clusters + 2; cluster++) {
-        fatEntry = cluster * 4; // Each FAT32 entry is 4 bytes
-        sectorOfFAT = bs->reserved_sectors + (fatEntry / SECTORSIZE);
-        offsetInSector = fatEntry % SECTORSIZE;
-
-        readsector(fd, fatSector, sectorOfFAT);
-
-        memcpy(&fatEntry, &fatSector[offsetInSector], sizeof(unsigned int));
-        if (fatEntry == 0) { // Found a free cluster
-            fatEntry = 0x0FFFFFFF;
-            memcpy(&fatSector[offsetInSector], &fatEntry, sizeof(unsigned int));
-            writesector(fd, fatSector, sectorOfFAT);
-            clearCluster(fd, cluster);
-            return cluster;
-        }
-    }
-    return 0xFFFFFFFF;
-}
-
 
 void clearCluster(int fd, unsigned int cluster) {
     unsigned char zeroBuffer[CLUSTERSIZE];
