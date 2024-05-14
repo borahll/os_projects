@@ -195,7 +195,7 @@ unsigned int getNextCluster(int fd, unsigned int currentCluster, unsigned char *
 
 
 void DisplayFileASCII(int fd, const char *filename) {
-    unsigned char buffer[CLUSTERSIZE];
+    unsigned char buffer[bs->sectors_per_cluster * SECTORSIZE];
     unsigned char fatTable[bs->sectors_per_fat * SECTORSIZE];
     struct dir_entry *entry;
     int i, found = FALSE;
@@ -210,7 +210,7 @@ void DisplayFileASCII(int fd, const char *filename) {
         int sector = (currentCluster - 2) * bs->sectors_per_cluster + bs->reserved_sectors;
         readsector(fd, buffer, sector);
         
-        for (i = 0; i < CLUSTERSIZE / sizeof(struct dir_entry); i++) {
+        for (i = 0; i < bs->sectors_per_cluster * SECTORSIZE / sizeof(struct dir_entry); i++) {
             entry = (struct dir_entry *)(buffer + i * sizeof(struct dir_entry));
             if (entry->name[0] == 0x00) break;
             if (entry->name[0] == 0xE5) continue;
@@ -308,7 +308,7 @@ void DisplayFileBinary(int fd, const char *filename) {
 }
 
 void CreateFile(int fd, const char *filename) {
-    unsigned char buffer[CLUSTERSIZE];
+    unsigned char buffer[bs->sectors_per_cluster * SECTORSIZE];
     struct dir_entry *entry;
     int i, sector, foundFree = FALSE;
     unsigned int currentCluster = bs->root_cluster;
@@ -322,12 +322,12 @@ void CreateFile(int fd, const char *filename) {
             readsector(fd, buffer + (i * SECTORSIZE), sector + i);
         }
 
-        for (i = 0; i < CLUSTERSIZE / sizeof(struct dir_entry); i++) {
+        for (i = 0; i < bs->sectors_per_cluster * SECTORSIZE / sizeof(struct dir_entry); i++) {
             entry = (struct dir_entry *)(buffer + i * sizeof(struct dir_entry));
             if (entry->name[0] == 0x00 || entry->name[0] == 0xE5) {
                 foundFree = TRUE;
                 memset(entry, 0, sizeof(struct dir_entry));
-                snprintf((char *)entry->name, 12, "%-11.11s", name);
+                snprintf((char*)entry->name, 9, "%-8.8s", filename); // Ensures only the first 8 characters are considered
                 entry->fileSize = 0;
                 entry->fstClusHI = 0;
                 entry->fstClusLO = 0;
