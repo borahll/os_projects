@@ -339,7 +339,7 @@ void CreateFile(int fd, const char *filename) {
             if (entry->name[0] == 0x00 || entry->name[0] == 0xE5) {
                 foundFree = TRUE;
                 memset(entry, 0, sizeof(struct dir_entry));
-                snprintf((char*)entry->name, 9, "%-8.8s", filename); // Ensures only the first 8 characters are considered
+                snprintf((char*)entry->name, 12, "%-11.11s", filename); // Ensures only the first 8 characters are considered
                 entry->fileSize = 0;
                 entry->fstClusHI = 0;
                 entry->fstClusLO = 0;
@@ -379,8 +379,13 @@ void DeleteFile(int fd, const char *filename) {
 
         for (i = 0; i < bs->sectors_per_cluster * SECTORSIZE / sizeof(struct dir_entry); i++) {
             entry = (struct dir_entry *)(buffer + i * sizeof(struct dir_entry));
+            
 
-            if (strncmp((const char*)entry->name, filename, 11) == 0) {
+            if (!(entry->attr & ATTR_VOLUME_ID)) {
+                printf("%11.11s Size: %u bytes\n", entry->name, entry->fileSize);
+            }
+            printf("File found: %s\n", entry->name);
+            if (strncmp((const char*)entry->name, filename, 12) == 0) {
                 entry->name[0] = 0xE5;  // Mark the entry as deleted
 
                 unsigned int cluster = ((entry->fstClusHI << 16) | entry->fstClusLO);
