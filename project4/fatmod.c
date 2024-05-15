@@ -35,7 +35,6 @@ struct __attribute__((packed)) dir_entry {
     unsigned short fstClusLO;
     unsigned int fileSize;
 };
-
 typedef struct {
     uint16_t bytes_per_sector;
     uint8_t sectors_per_cluster;
@@ -47,36 +46,34 @@ typedef struct {
     uint32_t total_clusters;
 } BootSector;
 BootSector *bs;
-
-int readsector (int fd, unsigned char *buf, uint snum);
-int writesector (int fd, unsigned char *buf, uint snum);
-void ListFiles(int fd);
-unsigned int getNextCluster(int fd, unsigned int currentCluster, unsigned char *fatSector);
-void DisplayFileASCII(int fd, const char *filename);
-void DisplayFileBinary(int fd, const char *filename);
-void CreateFile(int fd, const char *filename);
 void DeleteFile(int fd, const char *filename);
 void freeCluster(int fd, unsigned int cluster);
 void WriteDataToFile(int fd, const char *filename, unsigned int offset, unsigned int n, unsigned char data);
 void clearCluster(int fd, unsigned int cluster);
 unsigned int allocateNewCluster(int fd);
 int read_boot_sector(int fd);
-
+int readsector (int fd, unsigned char *buf, uint snum);
+int writesector (int fd, unsigned char *buf, uint snum);
+void ListFiles(int fd);
+void DisplayFileBinary(int fd, const char *filename);
+void CreateFile(int fd, const char *filename);
+unsigned int getNextCluster(int fd, unsigned int currentCluster, unsigned char *fatSector);
+void DisplayFileASCII(int fd, const char *filename);
 int main(int argc, char *argv[]) {
     if (argc < 3) {
-        fprintf(stderr, "Usage: %s <disk_image> <command> [options]\n", argv[0]);
+        fprintf(stderr, "Example usage: %s <disk_image> <command> [options]\n", argv[0]);
         return 1;
     }
     const char* diskImage = argv[1];
     const char* command = argv[2];
-        bs = malloc(sizeof(BootSector));
+    bs = malloc(sizeof(BootSector));
     if (bs == NULL) {
-        fprintf(stderr, "Failed to allocate memory for BootSector\n");
+        fprintf(stderr, "Failed to allocate the memory for BootSector\n");
         return 1;
     }
     int fd = open(diskImage, O_RDWR | O_SYNC);
     if (fd == -1) {
-        perror("Failed to open disk image");
+        perror("Failed to open the disk image");
         return 1;
     }
     if (read_boot_sector(fd) != 0) {
@@ -97,7 +94,7 @@ int main(int argc, char *argv[]) {
         } else if (strcmp(argv[3], "-b") == 0) {
             DisplayFileBinary(fd, argv[4]);
         } else {
-            fprintf(stderr, "Invalid option for -r command\n");
+            fprintf(stderr, "Invalid option for -r command. Please rewrite command\n");
             close(fd);
             free(bs);
             return 1;
@@ -128,7 +125,7 @@ int main(int argc, char *argv[]) {
         unsigned char byte = (unsigned char)strtoul(argv[6], NULL, 10);
         WriteDataToFile(fd, filename, offset, length, byte);
     } else {
-        fprintf(stderr, "Unknown command\n");
+        fprintf(stderr, "Unknown command.Please write command again\n");
         close(fd);
         return 1;
     }
@@ -209,7 +206,7 @@ void DisplayFileASCII(int fd, const char *filename) {
         for (j = 0; j < (bs->sectors_per_cluster * SECTORSIZE) / sizeof(struct dir_entry); j++) {
             entry = (struct dir_entry *)(buffer + j * sizeof(struct dir_entry));
             if (entry->name[0] == 0x00) {
-                printf("End of directory entries.\n");
+                printf("End of entries.\n");
                 return;
             }
             if (entry->name[0] == 0xE5) {
@@ -232,7 +229,7 @@ void DisplayFileASCII(int fd, const char *filename) {
                 for (k = strlen(fullname) - 1; k >= 0 && fullname[k] == ' '; k--) {
                     fullname[k] = '\0';
                 }
-                printf("Checking file: %s\n", fullname);
+                printf("Checking for file: %s\n", fullname);
                 if (strcmp(fullname, filename) == 0) {
                     found = TRUE;
                     printf("Found file: %s\n", fullname);
@@ -245,7 +242,7 @@ void DisplayFileASCII(int fd, const char *filename) {
     } while (currentCluster < 0x0FFFFFF8);
 
     if (!found) {
-        printf("File not found.\n");
+        printf("File NOT found.\n");
         return;
     }
     currentCluster = ((entry->fstClusHI << 16) | entry->fstClusLO);
@@ -284,7 +281,7 @@ void DisplayFileBinary(int fd, const char *filename) {
         for (j = 0; j < (bs->sectors_per_cluster * SECTORSIZE) / sizeof(struct dir_entry); j++) {
             entry = (struct dir_entry *)(buffer + j * sizeof(struct dir_entry));
             if (entry->name[0] == 0x00) {
-                printf("End of directory entries.\n");
+                printf("End of entries.\n");
                 return;
             }
             if (entry->name[0] == 0xE5) {
@@ -307,7 +304,7 @@ void DisplayFileBinary(int fd, const char *filename) {
                 for (k = strlen(fullname) - 1; k >= 0 && fullname[k] == ' '; k--) {
                     fullname[k] = '\0';
                 }
-                printf("Checking file: %s\n", fullname);
+                printf("Checking for file: %s\n", fullname);
                 if (strcmp(fullname, filename) == 0) {
                     found = TRUE;
                     printf("Found file: %s\n", fullname);
@@ -319,7 +316,7 @@ void DisplayFileBinary(int fd, const char *filename) {
         currentCluster = getNextCluster(fd, currentCluster, fatTable);
     } while (currentCluster < 0x0FFFFFF8);
     if (!found) {
-        printf("File not found.\n");
+        printf("File NOT found.\n");
         return;
     }
     currentCluster = ((entry->fstClusHI << 16) | entry->fstClusLO);
@@ -363,14 +360,14 @@ void CreateFile(int fd, const char *filename) {
                 for (i = 0; i < bs->sectors_per_cluster; i++) {
                     writesector(fd, buffer + (i * SECTORSIZE), sector + i);
                 }
-                printf("File created: %s\n", filename);
+                printf("File created with name: %s\n", filename);
                 return;
             }
         }
         currentCluster = getNextCluster(fd, currentCluster, buffer);
     } while (currentCluster < 0x0FFFFFF8);
     if (!foundFree) {
-        printf("No free directory entries available.\n");
+        printf("Err: No free directory entries available.\n");
     }
 }
 void DeleteFile(int fd, const char *filename) {
@@ -391,7 +388,7 @@ void DeleteFile(int fd, const char *filename) {
         for (j = 0; j < (bs->sectors_per_cluster * SECTORSIZE) / sizeof(struct dir_entry); j++) {
             entry = (struct dir_entry *)(buffer + j * sizeof(struct dir_entry));
             if (entry->name[0] == 0x00) {
-                printf("End of directory entries.\n");
+                printf("End of entries.\n");
                 return;
             }
             if (entry->name[0] == 0xE5) {
@@ -413,7 +410,7 @@ void DeleteFile(int fd, const char *filename) {
                 for (k = strlen(fullname) - 1; k >= 0 && fullname[k] == ' '; k--) {
                     fullname[k] = '\0';
                 }
-                printf("Checking file: %s\n", fullname);
+                printf("Checking for file: %s\n", fullname);
                 if (strcmp(fullname, filename) == 0) {
                     entry->name[0] = 0xE5;
                     unsigned int cluster = ((entry->fstClusHI << 16) | entry->fstClusLO);
@@ -433,7 +430,7 @@ void DeleteFile(int fd, const char *filename) {
         nextCluster = getNextCluster(fd, currentCluster, fatTable);
         currentCluster = nextCluster;
     } while (nextCluster < 0x0FFFFFF8);
-    printf("File not found: %s\n", filename);
+    printf("File NOT found: %s\n", filename);
 }
 void freeCluster(int fd, unsigned int cluster) {
     unsigned char fatSector[SECTORSIZE];
@@ -486,7 +483,7 @@ void WriteDataToFile(int fd, const char *filename, unsigned int offset, unsigned
         for (j = 0; j < (bs->sectors_per_cluster * SECTORSIZE) / sizeof(struct dir_entry); j++) {
             entry = (struct dir_entry *)(buffer + j * sizeof(struct dir_entry));
             if (entry->name[0] == 0x00) {
-                printf("End of directory entries.\n");
+                printf("End of entries.\n");
                 return;
             }
             if (entry->name[0] == 0xE5) {
@@ -509,10 +506,10 @@ void WriteDataToFile(int fd, const char *filename, unsigned int offset, unsigned
                 for (k = strlen(fullname) - 1; k >= 0 && fullname[k] == ' '; k--) {
                     fullname[k] = '\0';
                 }
-                printf("Checking file: %s\n", fullname);
+                printf("Checking for file: %s\n", fullname);
                 if (strcmp(fullname, filename) == 0) {
                     found = TRUE;
-                    printf("Found file: %s\n", fullname);
+                    printf("Found file with name: %s\n", fullname);
                     break;
                 }
             }
@@ -521,7 +518,7 @@ void WriteDataToFile(int fd, const char *filename, unsigned int offset, unsigned
         currentCluster = getNextCluster(fd, currentCluster, fatTable);
     } while (currentCluster < 0x0FFFFFF8);
     if (!found) {
-        printf("File not found.\n");
+        printf("File NOT found.\n");
         return;
     }
     dirSector = sector + (j * sizeof(struct dir_entry)) / SECTORSIZE;
@@ -533,7 +530,7 @@ void WriteDataToFile(int fd, const char *filename, unsigned int offset, unsigned
         if (currentCluster >= 0x0FFFFFF8) {
             currentCluster = allocateNewCluster(fd);
             if (currentCluster == 0xFFFFFFFF) {
-                printf("Failed to allocate new cluster.\n");
+                printf("Err: Failed to allocate new cluster.\n");
                 return;
             }
             entry->fstClusHI = (currentCluster >> 16) & 0xFFFF;
@@ -549,7 +546,7 @@ void WriteDataToFile(int fd, const char *filename, unsigned int offset, unsigned
     writesector(fd, buffer, sector);
     if (entry->fileSize < offset + n) {
         entry->fileSize = offset + n;
-        printf("Updated file size: %u\n", entry->fileSize);
+        printf("Updated filesize: %u\n", entry->fileSize);
         readsector(fd, dirBuffer, dirSector);
         memcpy(dirBuffer + entryOffset, entry, sizeof(struct dir_entry));
         writesector(fd, dirBuffer, dirSector);
@@ -594,7 +591,7 @@ int writesector(int fd, unsigned char *buf, uint snum) {
 int read_boot_sector(int fd) {
     uint8_t buffer[SECTORSIZE];
     if (pread(fd, buffer, SECTORSIZE, 0) != SECTORSIZE) {
-        perror("Failed to read boot sector");
+        perror("Err: Could not read boot sector");
         return -1;
     }
     bs->bytes_per_sector = *((uint16_t *)(buffer + 11));
