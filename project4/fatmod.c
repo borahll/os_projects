@@ -93,20 +93,23 @@ int main(int argc, char *argv[]) {
     }
     if (strcmp(command, "-l") == 0) {
         ListFiles(fd);
-    } else if (strcmp(command, "-ra") == 0) {
-        if (argc < 4) {
-            fprintf(stderr, "Usage: %s <disk_image> -ra <filename>\n", argv[0]);
+    } else if (strcmp(command, "-r") == 0) {
+        if (argc < 5) {
+            fprintf(stderr, "Usage: %s <disk_image> -r -a/-b <filename>\n", argv[0]);
             close(fd);
+            free(bs);
             return 1;
         }
-        DisplayFileASCII(fd, argv[3]);
-    } else if (strcmp(command, "-rb") == 0) {
-        if (argc < 4) {
-            fprintf(stderr, "Usage: %s <disk_image> -rb <filename>\n", argv[0]);
+        if (strcmp(argv[3], "-a") == 0) {
+            DisplayFileASCII(fd, argv[4]);
+        } else if (strcmp(argv[3], "-b") == 0) {
+            DisplayFileBinary(fd, argv[4]);
+        } else {
+            fprintf(stderr, "Invalid option for -r command\n");
             close(fd);
+            free(bs);
             return 1;
         }
-        DisplayFileBinary(fd, argv[3]);
     } else if (strcmp(command, "-c") == 0) {
         if (argc < 4) {
             fprintf(stderr, "Usage: %s <disk_image> -c <filename>\n", argv[0]);
